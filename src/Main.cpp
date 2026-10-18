@@ -2671,13 +2671,13 @@ namespace
         if (g_config.sectionNames)
             Text(name, g_fmtTitle.Get(), {left, y, r.right - 8, y + SectionNameH}, 0xFFFFFFFF);
         // With the line chosen (config `sectionStyle` 2): under the name across the section, from the
-        // first icon's left edge to the last column's icon's right, as the line between the columns is
-        // drawn; with the names off, in the middle of the parting above the section.
+        // first tile's left edge to the last column's tile's right, as the line between the columns is
+        // drawn; with the names off, in the middle of the parting above the section. (From icon to icon
+        // it fell short of the tiles, the more so in smaller ones; the user saw it.)
         if (g_config.sectionStyle == 2 && line)
         {
-            float right = r.right - (left - r.left);
             float line = g_config.sectionNames ? std::round(y + SectionNameH + 5) : std::round(r.top - SectionPad - (TileGap() + 8) / 2);
-            g_dc->FillRectangle({left, line, right, line + 1}, Brush(0x29FFFFFF));
+            g_dc->FillRectangle({std::round(r.left), line, std::round(r.right), line + 1}, Brush(0x29FFFFFF));
         }
     }
 
