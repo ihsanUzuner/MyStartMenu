@@ -588,8 +588,8 @@ namespace
     // 18.10.2026: more of them to a section's row): the tile, its icon and the gap between tiles all by
     // the same share, and no names (at half there is no room for one). The apps in no section keep the
     // size set. A tile's measures, in its section or out of one (the Cell* above are the latter's).
-    // A slider, 1 down to 0.5 in tenths (the user's wish: a choice of 3/4, 2/3, 1/2 had two too close
-    // and too big a jump to the last).
+    // A slider, 1 down to 0.5 in twentieths (the user's wish: a choice of 3/4, 2/3, 1/2 had two too
+    // close and too big a jump to the last; then tenths were too few).
     constexpr int SectionScaleMin = 50;
     float SectionScale() { return std::clamp(g_config.sectionScale, SectionScaleMin, 100) / 100.f; }
     struct TileDims
@@ -5065,7 +5065,7 @@ namespace
         if (slider == SetTileSlider)
             return {&Config::tileSize, TileSizeMin, TileSizeMax, TileSizeStep, L"Uygulama boyutu"};
         if (slider == SetSectionScale)
-            return {&Config::sectionScale, SectionScaleMin, 100, 10, L"Grup ölçeği"};
+            return {&Config::sectionScale, SectionScaleMin, 100, 5, L"Grup ölçeği"};
         return {&Config::iconSize, IconSizeMin, IconSizeMax, 1, L"Simge boyutu"};
     }
 
@@ -5095,10 +5095,10 @@ namespace
 
     std::wstring SliderText(SetPart slider)
     {
-        if (slider == SetSectionScale) // 1, 0,9 ... 0,5, as the user reads it
+        if (slider == SetSectionScale) // 1, 0,95, 0,9 ... 0,5, as the user reads it
         {
-            int tenths = SizeValue(SizeSliderOf(slider)) / 10;
-            return tenths == 10 ? L"1" : L"0," + std::to_wstring(tenths);
+            int percent = SizeValue(SizeSliderOf(slider));
+            return percent == 100 ? L"1" : L"0," + std::to_wstring(percent % 10 ? percent : percent / 10);
         }
         if (slider != SetSlider)
             return std::to_wstring(SizeValue(SizeSliderOf(slider))) + L" px";

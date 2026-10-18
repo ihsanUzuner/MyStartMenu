@@ -89,12 +89,12 @@ Config LoadConfig()
     else config.sectionStyle = root.Flag(L"highlightSections", false) ? 1 : 0;
     config.sectionColumns = std::clamp(int(root.Num(L"sectionColumns", config.sectionColumns)), 1, 4);
     {
-        // First it was a choice of four (0 to 3: whole, 3/4, 2/3, 1/2), then percent in 10s.
+        // First it was a choice of four (0 to 3: whole, 3/4, 2/3, 1/2), then percent in 5s.
         int scale = int(root.Num(L"sectionScale", config.sectionScale));
-        constexpr int Choices[] = {100, 80, 70, 50};
+        constexpr int Choices[] = {100, 75, 65, 50};
         if (scale >= 0 && scale <= 3)
             scale = Choices[scale];
-        config.sectionScale = std::clamp((scale + 5) / 10 * 10, 50, 100);
+        config.sectionScale = std::clamp((scale + 2) / 5 * 5, 50, 100);
     }
     config.sectionNames = root.Flag(L"sectionNames", config.sectionNames);
     config.centerUngrouped = root.Flag(L"centerUngrouped", config.centerUngrouped);
