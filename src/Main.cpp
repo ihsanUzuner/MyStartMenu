@@ -588,8 +588,10 @@ namespace
     // 18.10.2026: more of them to a section's row): the tile, its icon and the gap between tiles all by
     // the same share, and no names (at half there is no room for one). The apps in no section keep the
     // size set. A tile's measures, in its section or out of one (the Cell* above are the latter's).
-    constexpr float SectionScales[] = {1.f, 3 / 4.f, 2 / 3.f, 1 / 2.f};
-    float SectionScale() { return SectionScales[std::clamp(g_config.sectionScale, 0, int(std::size(SectionScales)) - 1)]; }
+    // A slider, 1 down to 0.5 in tenths (the user's wish: a choice of 3/4, 2/3, 1/2 had two too close
+    // and too big a jump to the last).
+    constexpr int SectionScaleMin = 50;
+    float SectionScale() { return std::clamp(g_config.sectionScale, SectionScaleMin, 100) / 100.f; }
     struct TileDims
     {
         float w, h, gap, icon, iconTop, labelTop;
@@ -4727,10 +4729,12 @@ namespace
     // right, not a slider), and the sections' look and columns.
     bool IsChoice(SetPart part)
     {
-        return IsMenuSizeSlider(part) || part == SetGapSlider || part == SetSectionStyle || part == SetSectionColumns ||
-               part == SetSectionScale || part == SetTint;
+        return IsMenuSizeSlider(part) || part == SetGapSlider || part == SetSectionStyle || part == SetSectionColumns || part == SetTint;
     }
-    bool IsSlider(SetPart part) { return part == SetSlider || part == SetTileSlider || part == SetIconSlider || part == SetFolderSlider; }
+    bool IsSlider(SetPart part)
+    {
+        return part == SetSlider || part == SetTileSlider || part == SetIconSlider || part == SetFolderSlider || part == SetSectionScale;
+    }
     bool IsHeader(SetPart part) { return part >= SetSizeHeader && part <= SetSectionsHeader; }
 
     // The panel's blocks, top to bottom: what always shows (the title, the transparency, the border),
@@ -4946,11 +4950,8 @@ namespace
     constexpr wchar_t const *SectionStyleNames[] = {L"Yok", L"Çerçeve", L"Çizgi"};
     constexpr wchar_t const *TileGapNames[] = {L"Sıkı", L"Normal", L"Ferah", L"Çok ferah"};
     constexpr wchar_t const *SectionColumnNames[] = {L"1", L"2", L"3", L"4"};
-    constexpr wchar_t const *SectionScaleNames[] = {L"Normal", L"3/4", L"2/3", L"1/2"}; // SectionScales
     int ChoiceCount(SetPart part)
     {
-        if (part == SetSectionScale)
-            return int(std::size(SectionScaleNames));
         if (part == SetWidthSlider)
             return MenuWidthSteps;
         if (part == SetHeightSlider)
@@ -4971,8 +4972,6 @@ namespace
             return g_config.sectionStyle;
         if (part == SetSectionColumns)
             return SectionColumnCount() - 1;
-        if (part == SetSectionScale)
-            return std::clamp(g_config.sectionScale, 0, int(std::size(SectionScaleNames)) - 1);
         if (part == SetTint)
             return TintIndex();
         return Nearest(TileGaps, g_config.tileGap);
@@ -4987,8 +4986,6 @@ namespace
             g_config.sectionStyle = k;
         else if (part == SetSectionColumns)
             g_config.sectionColumns = k + 1;
-        else if (part == SetSectionScale)
-            g_config.sectionScale = k;
         else if (part == SetTint)
             g_config.tint = TintSetting(k);
         else
@@ -5002,8 +4999,6 @@ namespace
             return MenuHeightNames[k];
         if (part == SetSectionColumns)
             return SectionColumnNames[k];
-        if (part == SetSectionScale)
-            return SectionScaleNames[k];
         if (part == SetTint)
             return TintChoices[k].name;
         return part == SetSectionStyle ? SectionStyleNames[k] : TileGapNames[k];
@@ -5069,6 +5064,8 @@ namespace
             return {&Config::folderIconSize, FolderIconMin, FolderIconMax, 1, L"Klasör simgeleri"};
         if (slider == SetTileSlider)
             return {&Config::tileSize, TileSizeMin, TileSizeMax, TileSizeStep, L"Uygulama boyutu"};
+        if (slider == SetSectionScale)
+            return {&Config::sectionScale, SectionScaleMin, 100, 10, L"Grup ölçeği"};
         return {&Config::iconSize, IconSizeMin, IconSizeMax, 1, L"Simge boyutu"};
     }
 
@@ -5098,6 +5095,11 @@ namespace
 
     std::wstring SliderText(SetPart slider)
     {
+        if (slider == SetSectionScale) // 1, 0,9 ... 0,5, as the user reads it
+        {
+            int tenths = SizeValue(SizeSliderOf(slider)) / 10;
+            return tenths == 10 ? L"1" : L"0," + std::to_wstring(tenths);
+        }
         if (slider != SetSlider)
             return std::to_wstring(SizeValue(SizeSliderOf(slider))) + L" px";
         int percent = int(std::round(g_config.transparency * 100));
@@ -5257,7 +5259,6 @@ namespace
         wchar_t const *label = part == SetWidthSlider ? L"Genişlik" : part == SetHeightSlider ? L"Yükseklik"
                                                                   : part == SetGapSlider      ? L"Uygulama aralığı"
                                                                   : part == SetSectionColumns ? L"Grup sütunları"
-                                                                  : part == SetSectionScale   ? L"Grup ölçeği"
                                                                                               : L"Grup vurgusu";
         std::wstring value = part == SetWidthSlider
                                  ? std::to_wstring(int(MenuWidthOf(g_config.menuWidthStep))) + L" px · " + std::to_wstring(Columns()) + L" sütun"
@@ -5570,7 +5571,7 @@ namespace
             g_menuSizing = true;
             g_resizePending = true;
         }
-        else if (part == SetGapSlider || part == SetSectionColumns || part == SetSectionScale)
+        else if (part == SetGapSlider || part == SetSectionColumns)
         {
             DropHovers(true); // sized for the old places
             ClampScrolls();

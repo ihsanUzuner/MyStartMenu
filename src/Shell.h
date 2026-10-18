@@ -68,7 +68,7 @@ struct Config
     bool appNames = true;        // the pinned apps' names under their icons; off, the grid is icons alone
     int sectionStyle = 0;  // how the sections show when not dragged: 0 not at all, 1 a faint box, 2 a line under the name
     int sectionColumns = 1;  // the sections side by side in this many columns (1..4); the apps in none above, across
-    int sectionScale = 0;    // the sections' tiles: 0 as the rest, 1 three quarters, 2 two thirds, 3 half
+    int sectionScale = 100;  // the sections' tiles, in percent of the rest's (SectionScaleMin..100, in 10s)
     bool sectionNames = true;  // the sections' names over them; off, no name rows at all
     // The body's tint: "" Windows' dark grey, "accent" Windows' accent colour, or "#RRGGBB" one picked;
     // any, a dark shade of it (see AcrylicBrush).

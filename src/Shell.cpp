@@ -88,7 +88,14 @@ Config LoadConfig()
     if (root.Find(L"sectionStyle")) config.sectionStyle = std::clamp(int(root.Num(L"sectionStyle", 0)), 0, 2);
     else config.sectionStyle = root.Flag(L"highlightSections", false) ? 1 : 0;
     config.sectionColumns = std::clamp(int(root.Num(L"sectionColumns", config.sectionColumns)), 1, 4);
-    config.sectionScale = std::clamp(int(root.Num(L"sectionScale", config.sectionScale)), 0, 3);
+    {
+        // First it was a choice of four (0 to 3: whole, 3/4, 2/3, 1/2), then percent in 10s.
+        int scale = int(root.Num(L"sectionScale", config.sectionScale));
+        constexpr int Choices[] = {100, 80, 70, 50};
+        if (scale >= 0 && scale <= 3)
+            scale = Choices[scale];
+        config.sectionScale = std::clamp((scale + 5) / 10 * 10, 50, 100);
+    }
     config.sectionNames = root.Flag(L"sectionNames", config.sectionNames);
     config.centerUngrouped = root.Flag(L"centerUngrouped", config.centerUngrouped);
     // A switch for the accent colour first (accentTint), then a choice of colours.
