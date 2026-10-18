@@ -1189,11 +1189,11 @@ namespace
     // The pinned grid's title's left: a DIP left of its first icon (see DrawPinnedGrid).
     float GridTitleX() { return std::round(GridLeft() + (CellWidth() - CellIcon()) / 2 - 1); }
 
-    // A list's rows: the search results across the apps side; the every-apps list over the grid's own
-    // stretch, its icons under the title where the grid's title is, so that nothing moves as it opens
-    // and closes (the user's wish: its "‹ Geri" stood further right than "Tüm uygulamalar ›").
-    float ListLeft() { return g_allApps ? GridTitleX() - 12 : 20; }
-    float ListRight() { return g_allApps ? GridLeft() + GridWidth() : FolderSplit() - 16; }
+    // A list's rows (the every-apps list's, the search results') keep to the grid's own stretch, their
+    // icons under where the grid's title is, so that nothing moves as one opens and closes (the user's
+    // wish: the list's "‹ Geri" stood further right than "Tüm uygulamalar ›"; then the results, too).
+    float ListLeft() { return GridTitleX() - 12; }
+    float ListRight() { return GridLeft() + GridWidth(); }
 
     D2D1_RECT_F ResultRect(int i)
     {
