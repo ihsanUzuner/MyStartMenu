@@ -1,10 +1,10 @@
-# BetterStartMenu
+# MyStartMenu
 
 [English](README.md) · Türkçe
 
 Windows 11 için, Win tuşuna bastığınızda ya da Başlat düğmesine tıkladığınızda Windows'un kendi menüsünün yerine
 açılan kişisel bir Başlat menüsü. Direct2D ve Windows.UI.Composition ile düz C++ ile yazıldı: .NET yok, XAML yok,
-kurulum programı yok, yaklaşık 30 MB bellek.
+kurulum programı yok, Görev Yöneticisi'nde yaklaşık 15 MB bellek.
 
 Arayüz Türkçedir.
 
@@ -14,15 +14,16 @@ Arayüz Türkçedir.
 
 - **Gruplar halinde sabitlenmiş uygulamalar.** Uygulamaları sürükleyerek sıralarını değiştirin ya da yeni bir grup
   başlatın; bir grubu taşımak için tutamacından sürükleyin. Grupların adı olabilir, çerçeveyle ya da altı çizili
-  gösterilebilir ve dört sütuna kadar dizilebilir.
+  gösterilebilir, dört sütuna kadar dizilebilir ve bir satıra daha çok sığsın diye kutucukları küçültülebilir
+  (1'den 0,5'e).
 - Uygulamaların yanında, klasörlerin kendi simgeleriyle bir **klasörler sütunu**; herhangi bir klasörü ya da kabuk
-  konumunu (Bu bilgisayar, Ağ, Denetim Masası) ekleyin.
+  konumunu (Bu bilgisayar, Ağ, Denetim Masası) ekleyin. Kapatırsanız uygulamalar bütün menüyü kullanır.
 - Harf başlıklarıyla A–Z ya da en son yüklenen önce sıralanan **tüm uygulamalar listesi**; bir uygulamayı sabitlemek
   ya da sabitlemesini kaldırmak için tıklayın.
 - Alt çubuktaki kutudan, yüklü uygulamalarda **arama**.
 - Ayarlanabilir saydamlık ve Windows'un vurgu rengi de dahil bir dizi ton rengiyle **akrilik arka plan**.
 - **Ayarlanabilir düzen:** menü genişliği ve yüksekliği, uygulama boyutu ve aralığı, simge boyutları, uygulama
-  adları açık ya da kapalı.
+  adları açık ya da kapalı. Adını göstermeyen bir kutucuk, imleç üstünde durunca adını bir ipucunda gösterir.
 - Ok tuşlarıyla klavyeden gezinme ve Windows'unkiler gibi güç ve hesap menüleri.
 
 Bütün ayarlar ayar panelinde (hesap menüsündeki "Menü ayarları") bulunur ve `%AppData%\MyStartMenu\config.json`
