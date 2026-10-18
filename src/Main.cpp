@@ -463,6 +463,11 @@ namespace
         return tile.icon.Get();
     }
 
+    // Icons wanted on disk though no tile shows them (size|id): with the sections' tiles smaller
+    // (SectionScale), a section's app at its size out of one, so it is sharp at once when dragged out
+    // (PrefetchIcons).
+    std::unordered_set<std::wstring> g_iconWarm;
+
     // Starts the helper on the queued icons of one size, unless it is already busy.
     void PumpIcons()
     {
@@ -474,6 +479,7 @@ namespace
         for (auto *tiles : {&g_pinned, &g_folders, &g_apps})
             for (auto const &tile : *tiles)
                 wanted.insert(std::to_wstring(tile.iconPixels) + L"|" + IconId(tile));
+        wanted.insert(g_iconWarm.begin(), g_iconWarm.end());
         std::erase_if(g_iconQueue, [&](auto const &entry)
                       {
         std::wstring key = std::to_wstring(entry.first) + L"|" + entry.second;
@@ -2654,11 +2660,13 @@ namespace
     // line whether a name wraps or not. With `highlightTiles` the tile is a faint box, as the sections
     // are (the user's wish); in a section only when the sections are not shown as boxes themselves
     // (`sectionStyle` 1: boxes in a box were too many). Drawn with the tile, it goes with it when dragged.
-    void DrawTile(Tile &tile, D2D1_RECT_F r)
+    // As in its section (`group`; -1: the one it is in), whose tiles may be smaller.
+    void DrawTile(Tile &tile, D2D1_RECT_F r, int group = -1)
     {
-        if (g_config.highlightTiles && (!tile.group || g_config.sectionStyle != 1))
+        bool grouped = (group < 0 ? tile.group : group) != 0;
+        if (g_config.highlightTiles && (!grouped || g_config.sectionStyle != 1))
             g_dc->FillRoundedRectangle(D2D1::RoundedRect(r, 6, 6), Brush(0x0AFFFFFF));
-        auto d = Dims(tile.group != 0);
+        auto d = Dims(grouped);
         float icon = d.icon, left = std::round((r.left + r.right - icon) / 2);
         float top = r.top + d.iconTop;
         float label = r.top + d.labelTop;
@@ -3729,6 +3737,25 @@ namespace
             return;
         for (auto &tile : g_pinned)
             IconOf(tile, int(std::round(Dims(tile.group != 0).icon * g_dpi / 96.f)));
+        // The sections' apps at their size out of one too, onto disk only (see g_iconWarm).
+        g_iconWarm.clear();
+        if (SectionScale() < 1)
+        {
+            int size = int(std::round(CellIcon() * g_dpi / 96.f));
+            for (auto const &tile : g_pinned)
+            {
+                if (!tile.group)
+                    continue;
+                std::wstring id = IconId(tile);
+                std::vector<uint8_t> pixels;
+                int w = 0, h = 0;
+                uint64_t written = 0;
+                if (ReadCachedIcon(id, size, pixels, w, h, written) && written >= g_appsChangedAt)
+                    continue;
+                g_iconWarm.insert(std::to_wstring(size) + L"|" + id);
+                RequestIcon(id, size);
+            }
+        }
         for (auto &tile : g_folders)
             IconOf(tile, int(std::round(FolderIcon() * g_dpi / 96.f)));
         PumpIcons();
@@ -5570,6 +5597,8 @@ namespace
         {
             DropHovers(true);
             ClampScrolls();
+            if (slider == SetSectionScale)
+                PrefetchIcons(); // the sections' apps at their size out of one, onto disk (g_iconWarm)
         }
         Invalidate();
         DrawSettings();
@@ -5756,7 +5785,7 @@ namespace
     // new size as it slides there, from its top left; the grid draws it sharp once it has settled.
     void ScaleTo(wuc::Visual const &visual, float scale)
     {
-        if (std::abs(scale - 1) < 0.001f)
+        if (std::abs(visual.Scale().x - scale) < 0.001f)
             return;
         auto grow = g_compositor.CreateVector3KeyFrameAnimation();
         grow.InsertKeyFrame(1.f, {scale, scale, 1}, Bezier(0.1f, 0.9f, 0.2f, 1.f));
@@ -6086,16 +6115,39 @@ namespace
     }
 
     // A tile (or a folder's row) drawn into a sprite of its own, its slot's size, with a highlight
-    // under it if `lifted`.
-    wuc::SpriteVisual TileVisual(int pin, bool lifted)
+    // under it if `lifted`; a pin's as in its section, or as in `group` (its size and look there).
+    wuc::SpriteVisual TileVisual(int pin, bool lifted, int group = -1)
     {
         auto slot = g_dragFolders ? SlotRect(0) : PinnedRect(pin); // a section's tiles may be smaller
         float w = slot.right - slot.left, h = slot.bottom - slot.top;
-        return DrawnVisual(w, h, [w, h, pin, lifted]
+        if (!g_dragFolders && group >= 0)
+        {
+            auto d = Dims(group != 0);
+            w = d.w, h = d.h;
+        }
+        return DrawnVisual(w, h, [w, h, pin, lifted, group]
                            {
         if (lifted) g_dc->FillRoundedRectangle(D2D1::RoundedRect({ 0, 0, w, h }, 6, 6), Brush(0x2EFFFFFF));
         if (g_dragFolders) DrawFolderRow(g_folders[pin], { 0, 0, w, h });
-        else DrawTile(g_pinned[pin], { 0, 0, w, h }); });
+        else DrawTile(g_pinned[pin], { 0, 0, w, h }, group); });
+    }
+
+    // A tile let go (or a section dissolved) that grows on the way into its new place is drawn anew at
+    // that size, shown at the old one, and grows into it (ScaleTo): scaled up, a small tile's drawing
+    // came out blurred till the grid drew it again (the user saw it). One that shrinks keeps its larger
+    // drawing, which stays sharp scaled down.
+    wuc::SpriteVisual GrownTileVisual(wuc::SpriteVisual const &old, int pin, int group, float scale)
+    {
+        auto visual = TileVisual(pin, false, group);
+        visual.Offset(old.Offset());
+        visual.Opacity(old.Opacity());
+        visual.Scale({scale, scale, 1});
+        if (auto parent = old.Parent())
+        {
+            parent.Children().InsertAbove(visual, old);
+            parent.Children().Remove(old);
+        }
+        return visual;
     }
 
     void StartPinDrag()
@@ -6408,9 +6460,17 @@ namespace
                                    { return t.id == ids[i]; });
             if (it == g_pinned.end())
                 continue;
-            auto const &r = after.cells[it - g_pinned.begin()];
+            int pin = int(it - g_pinned.begin());
+            auto const &r = after.cells[pin];
+            float now = before.cells[i].right - before.cells[i].left, then = r.right - r.left;
+            if (then > now + 0.5f) // out of a section of smaller tiles: drawn anew at its new size (GrownTileVisual)
+            {
+                g_dragTileVisuals[i] = GrownTileVisual(g_dragTileVisuals[i], pin, it->group, now / then);
+                ScaleTo(g_dragTileVisuals[i], 1);
+            }
+            else
+                ScaleTo(g_dragTileVisuals[i], then / now);
             g_dragTileVisuals[i].StartAnimation(L"Offset", SlideTo({Px(r.left), Px(r.top), 0}));
-            ScaleTo(g_dragTileVisuals[i], (r.right - r.left) / (before.cells[i].right - before.cells[i].left));
         }
         for (auto const &header : g_dragHeaders)
         {
@@ -6567,9 +6627,17 @@ namespace
         auto batch = g_compositor.CreateScopedBatch(wuc::CompositionBatchTypes::Animation);
         PlaceDragTiles(true);
         auto at = Snapped(DragLayout().cells[g_dragPin], g_scroll);
+        float now = Dims(g_pinned[g_dragPin].group != 0).w, then = at.right - at.left;
+        if (then > now + 0.5f)
+        {
+            int group = drop ? g_dragTarget.section : g_pinned[g_dragPin].group;
+            g_dragVisual = GrownTileVisual(g_dragVisual, g_dragPin, group == NewSection ? 1 : group, now / then);
+            ScaleTo(g_dragVisual, 1);
+        }
+        else
+            ScaleTo(g_dragVisual, then / now);
         g_dragVisual.StartAnimation(L"Offset", SlideTo({Px(at.left), Px(at.top), 0}));
         Animate(g_dragVisual, L"Opacity", 1, TileTime, ease);
-        ScaleTo(g_dragVisual, (at.right - at.left) / Dims(g_pinned[g_dragPin].group != 0).w);
         batch.End();
         batch.Completed([generation](auto &&, auto &&)
                         {
