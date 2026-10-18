@@ -1,5 +1,7 @@
 # BetterStartMenu
 
+English · [Türkçe](README.tr.md)
+
 A personal Start menu for Windows 11 that opens in place of Windows' own, when you press the Win key or click the
 Start button. Written in plain C++ with Direct2D and Windows.UI.Composition: no .NET, no XAML, no installer, about
 30 MB of memory.
