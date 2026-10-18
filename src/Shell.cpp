@@ -82,6 +82,7 @@ Config LoadConfig()
     config.transparency = std::clamp(root.Num(L"transparency", config.transparency), 0.0, 0.9);
     config.border = root.Flag(L"border", config.border);
     config.fixedBar = root.Flag(L"fixedBar", config.fixedBar);
+    config.folders = root.Flag(L"folders", config.folders);
     config.appNames = root.Flag(L"appNames", config.appNames);
     // A choice of three; before, a switch for the box (highlightSections).
     if (root.Find(L"sectionStyle")) config.sectionStyle = std::clamp(int(root.Num(L"sectionStyle", 0)), 0, 2);
@@ -148,6 +149,7 @@ void SaveSettings(Config const& config)
     root.Set(L"transparency", JsonValue::Number(config.transparency));
     root.Set(L"border", JsonValue::Bool(config.border));
     root.Set(L"fixedBar", JsonValue::Bool(config.fixedBar));
+    root.Set(L"folders", JsonValue::Bool(config.folders));
     root.Remove(L"fixedSearch");  // the search box is always centred over the apps side now
     root.Set(L"appNames", JsonValue::Bool(config.appNames));
     root.Remove(L"highlightSections");

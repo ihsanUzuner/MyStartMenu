@@ -586,7 +586,10 @@ namespace
 
     float FolderWidth() { return std::clamp(float(g_config.folderWidth), FolderMinW(), FolderMaxW); }
     float FolderLeft() { return FolderRight - FolderWidth(); }
-    float FolderSplit() { return FolderLeft() - 12; }
+    // With the folder column off (config `folders`, the user's wish: some want the apps alone), the line
+    // is as far in from the menu's right edge as the grid is from its left: the apps side is the whole
+    // menu, the grid in its middle, and the apps side's scrollbar where the folders' was.
+    float FolderSplit() { return g_config.folders ? FolderLeft() - 12 : MenuW - GridX + SplitGap; }
     bool FolderNames() { return FolderWidth() >= FolderNamesMinW(); }
 
     float GridRoom() { return FolderSplit() - SplitGap - GridX; }
@@ -996,7 +999,7 @@ namespace
         return {FolderLeft(), y, FolderRight, y + h};
     }
 
-    bool InFolderColumn(D2D1_POINT_2F p) { return p.x >= FolderSplit(); }
+    bool InFolderColumn(D2D1_POINT_2F p) { return g_config.folders && p.x >= FolderSplit(); }
 
     // At the box's right end, always, faint: a reminder that Windows' own search (files, settings)
     // is Win+S; this menu searches only apps (the user's choice, to keep it light).
@@ -1279,7 +1282,7 @@ namespace
     }
 
     // The search results have none; the folder list keeps its own beside them.
-    bool ScrollbarShown(int bar = 0) { return (bar || !SearchView()) && BarMaxScroll(bar) > 0; }
+    bool ScrollbarShown(int bar = 0) { return (bar ? g_config.folders : !SearchView()) && BarMaxScroll(bar) > 0; }
 
     // The thumb's length is the visible share of the whole; its place, how far down the scroll is.
     D2D1_RECT_F ScrollThumbAt(float scroll, int bar = 0)
@@ -1321,7 +1324,7 @@ namespace
                         return KeySort + i;
             // The folder column stays beside the search results too (the user's wish), as beside the
             // every-apps list.
-            if (g_setOpen && (Inside(SplitHandleRect(), p) ||
+            if (g_setOpen && g_config.folders && (Inside(SplitHandleRect(), p) ||
                               (std::abs(p.x - FolderSplit()) <= SplitGrab && p.y >= SplitTop && p.y < SplitBottom)))
                 return KeySplitter;
             // The sections' grips, while the settings panel is open.
@@ -2905,6 +2908,8 @@ namespace
     // The folder column's parts on the front layer: the line, the "+" row, the line's handle.
     void DrawFolderColumn()
     {
+        if (!g_config.folders)
+            return;
         // The line between the columns: light, unlike the bands' separators, which darken; a darkening
         // all but vanishes on the dark content area.
         float split = FolderSplit();
@@ -3398,6 +3403,12 @@ namespace
 
     void DrawFolderLayer()
     {
+        g_folderSprite.IsVisible(g_config.folders);
+        if (!g_config.folders)
+        {
+            PlaceThumb(1, nullptr); // hides it
+            return;
+        }
         float left = FolderSplit() + 1, w = MenuW - left, h = SplitBottom - SplitTop + 2 * ScrollOverscan;
         float top = SplitTop - ScrollOverscan;
         SIZE px{LONG(Px(w)), LONG(Px(h))};
@@ -4634,6 +4645,7 @@ namespace
         SetBorder,
         SetWidthSlider,
         SetHeightSlider,
+        SetFolders,
         SetFolderSlider,
         SetFixedBar,
         SetTileSlider,
@@ -4697,6 +4709,7 @@ namespace
         {SetHeightSlider, BlockSize, false},
         {SetSlider, BlockSize, false},
         {SetTint, BlockSize, false},
+        {SetFolders, BlockSize, true},
         {SetFolderSlider, BlockSize, false},
         {SetBorder, BlockSize, true},
         {SetFixedBar, BlockSize, true},
@@ -4778,6 +4791,7 @@ namespace
         wuc::CompositionDrawingSurface knobOnSurface{nullptr}, knobOffSurface{nullptr};
     };
     SetToggle g_setToggles[] = {
+        {SetFolders, &Config::folders, L"Klasörler"},
         {SetBorder, &Config::border, L"Dış çerçeve çizgisi"},
         {SetFixedBar, &Config::fixedBar, L"Alt çubuğu sabitle"},
         {SetAppNames, &Config::appNames, L"Uygulama adları"},
@@ -5530,7 +5544,8 @@ namespace
     void FlipToggle(SetToggle const &t)
     {
         g_config.*t.value = !(g_config.*t.value);
-        if (t.value == &Config::appNames || t.value == &Config::sectionNames || t.value == &Config::centerUngrouped)
+        if (t.value == &Config::appNames || t.value == &Config::sectionNames || t.value == &Config::centerUngrouped ||
+            t.value == &Config::folders)
         {
             DropHovers(true); // sized and placed for the old cells
             ClampScrolls();
@@ -6997,7 +7012,7 @@ namespace
         std::vector<std::pair<int, D2D1_RECT_F>> items;
         for (int i = 0; i < int(g_pinned.size()); i++)
             items.push_back({KeyPinned + i, PinnedRect(i)});
-        for (int i = 0; i < int(g_folders.size()); i++)
+        for (int i = 0; g_config.folders && i < int(g_folders.size()); i++)
             items.push_back({KeyFolder + i, FolderRect(i)});
         if (items.empty())
             return;

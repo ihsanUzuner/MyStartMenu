@@ -64,6 +64,7 @@ struct Config
     int menuWidthStep = -1, menuHeightStep = -1;
     int menuWidth = 834, menuHeight = 866;
     bool fixedBar = false;       // the bottom bar's buttons keep their places in Windows' own 834 wide menu
+    bool folders = true;         // the folder column shown; off, the apps take the whole menu
     bool appNames = true;        // the pinned apps' names under their icons; off, the grid is icons alone
     int sectionStyle = 0;  // how the sections show when not dragged: 0 not at all, 1 a faint box, 2 a line under the name
     int sectionColumns = 1;  // the sections side by side in this many columns (1..4); the apps in none above, across
