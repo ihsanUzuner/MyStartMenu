@@ -18,6 +18,7 @@
 #include <algorithm>
 #include <atomic>
 #include <fstream>
+#include <functional>
 #include <iterator>
 #include <memory>
 #include <thread>
@@ -554,18 +555,35 @@ void UseUserEnvironment()
     DestroyEnvironmentBlock(block);
 }
 
+namespace
+{
+// ShellExecuteW returns only once the program has started (Blender's launcher: 200 ms, measured),
+// and the menu began closing only after it. On its own thread the menu closes at once; it is still
+// the foreground process meanwhile, so the program may still come to the front.
+void ShellOpenAsync(std::function<void()> open)
+{
+    std::thread([open = std::move(open)]
+                {
+        CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+        open();
+        CoUninitialize(); }).detach();
+}
+}
+
 void LaunchApp(std::wstring const& id)
 {
-    std::wstring target = ShellName(id);
-    if (reinterpret_cast<INT_PTR>(ShellExecuteW(nullptr, L"open", target.c_str(), nullptr, nullptr, SW_SHOWNORMAL)) <= 32)
-        ShellExecuteW(nullptr, L"open", L"explorer.exe", (L"\"" + target + L"\"").c_str(), nullptr, SW_SHOWNORMAL);
+    ShellOpenAsync([target = ShellName(id)]
+                   {
+        if (reinterpret_cast<INT_PTR>(ShellExecuteW(nullptr, L"open", target.c_str(), nullptr, nullptr, SW_SHOWNORMAL)) <= 32)
+            ShellExecuteW(nullptr, L"open", L"explorer.exe", (L"\"" + target + L"\"").c_str(), nullptr, SW_SHOWNORMAL); });
 }
 
 void OpenTarget(std::wstring const& target)
 {
     wchar_t expanded[MAX_PATH];
     ExpandEnvironmentStringsW(target.c_str(), expanded, MAX_PATH);
-    ShellExecuteW(nullptr, L"open", expanded, nullptr, nullptr, SW_SHOWNORMAL);
+    ShellOpenAsync([target = std::wstring(expanded)]
+                   { ShellExecuteW(nullptr, L"open", target.c_str(), nullptr, nullptr, SW_SHOWNORMAL); });
 }
 
 namespace
