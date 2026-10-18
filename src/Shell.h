@@ -6,7 +6,12 @@
 #include <string_view>
 #include <vector>
 
+#include "version.h"  // obj\version.h, made by build.cmd from the VERSION file
+
 struct HWND__;  // HWND, without pulling in windows.h
+
+// This build's version, "major.minor.patch" (for the update check).
+constexpr wchar_t AppVersion[] = L"" APP_VERSION;
 
 struct AppRef
 {
