@@ -1186,10 +1186,19 @@ namespace
     // Where result i is in the list as drawn, from the top.
     int ResultSlot(int i) { return ResultsUpward() ? int(g_results.size()) - 1 - i : i; }
 
+    // The pinned grid's title's left: a DIP left of its first icon (see DrawPinnedGrid).
+    float GridTitleX() { return std::round(GridLeft() + (CellWidth() - CellIcon()) / 2 - 1); }
+
+    // A list's rows: the search results across the apps side; the every-apps list over the grid's own
+    // stretch, its icons under the title where the grid's title is, so that nothing moves as it opens
+    // and closes (the user's wish: its "‹ Geri" stood further right than "Tüm uygulamalar ›").
+    float ListLeft() { return g_allApps ? GridTitleX() - 12 : 20; }
+    float ListRight() { return g_allApps ? GridLeft() + GridWidth() : FolderSplit() - 16; }
+
     D2D1_RECT_F ResultRect(int i)
     {
         float y = ListTop() + ResultSlot(i) * RowH - g_scroll;
-        return {20, y, FolderSplit() - 16, y + RowH};
+        return {ListLeft(), y, ListRight(), y + RowH};
     }
 
     // In the every-apps list sorted by letter, a row can be a letter heading: stored as -(letter + 1).
@@ -1213,7 +1222,7 @@ namespace
     // The every-apps list's sort buttons, after its title and count, in its fixed title row.
     D2D1_RECT_F SortButtonRect(int i)
     {
-        float x = 32 + TextWidth(AllAppsTitle, g_fmtTitle.Get()) + 8 + TextWidth(std::to_wstring(g_apps.size()), g_fmtName.Get()) + 16;
+        float x = GridTitleX() + TextWidth(AllAppsTitle, g_fmtTitle.Get()) + 8 + TextWidth(std::to_wstring(g_apps.size()), g_fmtName.Get()) + 16;
         for (int j = 0; j < i; j++)
             x += TextWidth(SortNames[j], g_fmtName.Get()) + 24 + 4;
         float w = TextWidth(SortNames[i], g_fmtName.Get()) + 24, cy = TitleY + 10;
@@ -1230,9 +1239,9 @@ namespace
 
     D2D1_RECT_F AllAppsButtonRect()
     {
-        // On the grid, its right edge on the grid's (the last tile's), inside the sections' boxes (the
-        // user's wish: it stood out past them); over the every-apps list, on the list's.
-        float right = g_allApps ? FolderSplit() - 16 : GridLeft() + GridWidth(), cy = TitleY + 10 - (g_allApps ? 0 : g_scroll);
+        // Its right edge on the grid's (the last tile's), inside the sections' boxes (the user's wish: it
+        // stood out past them); over the every-apps list too, which keeps to the grid's stretch.
+        float right = GridLeft() + GridWidth(), cy = TitleY + 10 - (g_allApps ? 0 : g_scroll);
         float w = std::round(ButtonPad + TextWidth(AllAppsButtonText(), g_fmtName.Get()) + ChevronGap + ChevronW + ButtonPad);
         return {right - w, cy - 13, right, cy + 13};
     }
@@ -2867,7 +2876,7 @@ namespace
     {
         // Windows puts the title at 64, a DIP left of its first 32 DIP icon (33 + (96 - 32) / 2): the
         // title lines up with the icons. So it follows the icons' left edge as their size changes.
-        float titleX = std::round(GridLeft() + (CellWidth() - CellIcon()) / 2 - 1);
+        float titleX = GridTitleX();
         DrawColumnTitle(L"Uygulamalar", g_pinned.size(), L"Sabitlenmiş uygulama yok.", titleX, FolderSplit() - 16, g_scroll);
         DrawAllAppsButton();
         // While a pin is dragged (and the tiles settle after), each tile and section name is a layer of
@@ -3023,7 +3032,7 @@ namespace
     // (DrawHome), the list scrolling under it.
     void DrawAllAppsHeader()
     {
-        DrawColumnTitle(AllAppsTitle, g_apps.size(), L"", 32, FolderSplit() - 56, 0);
+        DrawColumnTitle(AllAppsTitle, g_apps.size(), L"", GridTitleX(), ListRight() - 40, 0);
         for (int i = 0; i < SortCount; i++)
         {
             // The chosen one filled, as a selected segment; hover adds its own layer on top.
@@ -3046,7 +3055,7 @@ namespace
         if (g_results.empty())
         {
             Text(g_apps.empty() ? L"Uygulamalar yükleniyor…" : L"Sonuç yok", g_fmtRow.Get(),
-                 {40, ListTop() - g_scroll, FolderSplit() - 16, ListTop() + RowH - g_scroll}, 0xFFA6A6A6);
+                 {ListLeft() + 20, ListTop() - g_scroll, ListRight(), ListTop() + RowH - g_scroll}, 0xFFA6A6A6);
             return;
         }
         int first = std::max(0, int((g_drawTop - ListTop() + g_scroll) / RowH));
