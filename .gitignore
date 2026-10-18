@@ -1,0 +1,8 @@
+# Build output: bin\MyStartMenu.exe and its error.log, obj\*.obj
+bin/
+obj/
+
+# Local only
+.vscode/
+.claude/
+CLAUDE.md
