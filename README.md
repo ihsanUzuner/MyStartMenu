@@ -16,7 +16,7 @@ The interface is in Turkish.
 - **Acrylic background:** adjustable transparency and colour.
 - **Adjustable layout:** menu size, tile size and spacing, icon sizes, app names.
 
-All settings are in the settings panel ("Menü ayarları" in the account menu), and saved to
+All settings are in the settings panel (the brush button left of the account picture), and saved to
 `%AppData%\MyStartMenu\config.json`.
 
 ## Install

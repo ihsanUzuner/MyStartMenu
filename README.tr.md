@@ -17,7 +17,7 @@ Arayüz Türkçedir.
 - **Akrilik arka plan:** ayarlanabilir saydamlık ve renk.
 - **Ayarlanabilir düzen:** menü boyutu, uygulama boyutu ve aralığı, simge boyutları, uygulama adları.
 
-Bütün ayarlar ayar panelinde (hesap menüsündeki "Menü ayarları") bulunur ve `%AppData%\MyStartMenu\config.json`
+Bütün ayarlar ayar panelinde (hesap resminin solundaki fırça düğmesi) bulunur ve `%AppData%\MyStartMenu\config.json`
 dosyasına kaydedilir.
 
 ## Kurulum
