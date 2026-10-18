@@ -2002,7 +2002,10 @@ namespace
                 ++it;
                 continue;
             }
-            HoverContainer(it->first).Children().Remove(it->second);
+            // From the container it is in, not the one its key would get now: the every-apps button's
+            // moves to the fixed layer as the list opens (IsAppsKey), and removing it from there threw.
+            if (auto parent = it->second.Parent())
+                parent.Children().Remove(it->second);
             it = g_hoverLayers.erase(it);
         }
         std::erase_if(g_highlights, [contentOnly](auto const &entry)
@@ -7899,9 +7902,27 @@ namespace
 }
 
 // An exception nothing caught ends the app; it says what it was in the log first (a crash
-// otherwise leaves only "abort" in the event log).
+// otherwise leaves only "abort" in the event log), and where: the calls on the stack, as offsets in
+// the exe to look up in a map file (see CLAUDE.md). The stack is not yet unwound here, so it reaches
+// down to the throw.
 [[noreturn]] void LogTerminate()
 {
+    void *frames[48];
+    USHORT count = CaptureStackBackTrace(0, 48, frames, nullptr);
+    auto base = reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr));
+    std::wstring stack = L"terminate: stack";
+    for (USHORT i = 0; i < count; i++)
+    {
+        HMODULE module = nullptr;
+        GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                           static_cast<LPCWSTR>(frames[i]), &module);
+        if (reinterpret_cast<uintptr_t>(module) != base)
+            continue; // Windows' own code
+        wchar_t rva[16];
+        swprintf_s(rva, L" %llX", static_cast<unsigned long long>(reinterpret_cast<uintptr_t>(frames[i]) - base));
+        stack += rva;
+    }
+    Log(stack);
     try
     {
         if (auto exception = std::current_exception())
