@@ -11,17 +11,10 @@ The interface is in Turkish.
 
 ## Features
 
-- **Pinned apps in groups.** Drag apps to reorder them or to start a new group; drag a group by its handle to move
-  it. Groups can be named, outlined or underlined, laid out in up to four columns, and their tiles scaled down
-  (1 to 0.5) to fit more to a row.
-- **Folders column** beside the apps, with the folders' own icons; add any folder or shell location (This PC,
-  Network, Control Panel). Turn it off to give the apps the whole menu.
-- **All apps list**, A–Z with letter headings or most recently installed first; click an app to pin or unpin it.
-- **Search** over installed apps, from the box in the bottom bar.
-- **Acrylic background** with adjustable transparency and a choice of tint colours, including Windows' accent colour.
-- **Adjustable layout:** menu width and height, tile size and spacing, icon sizes, app names on or off. A tile
-  that does not show its name shows it in a tip when the pointer rests on it.
-- Keyboard navigation with the arrow keys, and power and account menus like Windows' own.
+- **Groups:** drag apps to reorder and group them; groups can stand in up to four columns, their tiles scaled down.
+- **Folders column:** any folder, or This PC, Network, Control Panel; can be turned off.
+- **Acrylic background:** adjustable transparency and colour.
+- **Adjustable layout:** menu size, tile size and spacing, icon sizes, app names.
 
 All settings are in the settings panel ("Menü ayarları" in the account menu), and saved to
 `%AppData%\MyStartMenu\config.json`.

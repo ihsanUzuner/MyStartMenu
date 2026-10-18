@@ -11,19 +11,11 @@ Arayüz Türkçedir.
 
 ## Özellikler
 
-- **Gruplar halinde sabitlenmiş uygulamalar.** Uygulamaları sürükleyerek sıralarını değiştirin ya da yeni bir grup
-  başlatın; bir grubu taşımak için tutamacından sürükleyin. Grupların adı olabilir, çerçeveyle ya da altı çizili
-  gösterilebilir, dört sütuna kadar dizilebilir ve bir satıra daha çok sığsın diye kutucukları küçültülebilir
-  (1'den 0,5'e).
-- Uygulamaların yanında, klasörlerin kendi simgeleriyle bir **klasörler sütunu**; herhangi bir klasörü ya da kabuk
-  konumunu (Bu bilgisayar, Ağ, Denetim Masası) ekleyin. Kapatırsanız uygulamalar bütün menüyü kullanır.
-- Harf başlıklarıyla A–Z ya da en son yüklenen önce sıralanan **tüm uygulamalar listesi**; bir uygulamayı sabitlemek
-  ya da sabitlemesini kaldırmak için tıklayın.
-- Alt çubuktaki kutudan, yüklü uygulamalarda **arama**.
-- Ayarlanabilir saydamlık ve Windows'un vurgu rengi de dahil bir dizi ton rengiyle **akrilik arka plan**.
-- **Ayarlanabilir düzen:** menü genişliği ve yüksekliği, uygulama boyutu ve aralığı, simge boyutları, uygulama
-  adları açık ya da kapalı. Adını göstermeyen bir kutucuk, imleç üstünde durunca adını bir ipucunda gösterir.
-- Ok tuşlarıyla klavyeden gezinme ve Windows'unkiler gibi güç ve hesap menüleri.
+- **Gruplar:** uygulamaları sürükleyerek sıralayın ve gruplayın; gruplar dört sütuna kadar dizilebilir, kutucukları
+  küçültülebilir.
+- **Klasörler sütunu:** herhangi bir klasör ya da Bu bilgisayar, Ağ, Denetim Masası; istenirse kapatılır.
+- **Akrilik arka plan:** ayarlanabilir saydamlık ve renk.
+- **Ayarlanabilir düzen:** menü boyutu, uygulama boyutu ve aralığı, simge boyutları, uygulama adları.
 
 Bütün ayarlar ayar panelinde (hesap menüsündeki "Menü ayarları") bulunur ve `%AppData%\MyStartMenu\config.json`
 dosyasına kaydedilir.
