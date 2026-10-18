@@ -2,9 +2,8 @@
 
 [English](README.md) · Türkçe
 
-Windows 11 için, Win tuşuna bastığınızda ya da Başlat düğmesine tıkladığınızda Windows'un kendi menüsünün yerine
-açılan kişisel bir Başlat menüsü. Direct2D ve Windows.UI.Composition ile düz C++ ile yazıldı: .NET yok, XAML yok,
-kurulum programı yok, Görev Yöneticisi'nde yaklaşık 15 MB bellek.
+Windows 11 için kişisel bir Başlat menüsü. Direct2D ve Windows.UI.Composition ile düz C++ ile yazıldı: .NET yok,
+XAML yok, kurulum programı yok, Görev Yöneticisi'nde yaklaşık 15 MB bellek.
 
 Arayüz Türkçedir.
 
