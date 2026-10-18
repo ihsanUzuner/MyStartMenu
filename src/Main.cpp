@@ -586,8 +586,10 @@ namespace
 
     // The sections' tiles may be smaller than the rest (config `sectionScale`, the user's wish,
     // 18.10.2026: more of them to a section's row): the tile, its icon and the gap between tiles all by
-    // the same share, and no names (at half there is no room for one). The apps in no section keep the
-    // size set. A tile's measures, in its section or out of one (the Cell* above are the latter's).
+    // the same share. A name shows while the tile is as wide as the narrowest the tiles can be set to
+    // (TileSizeMin), where one fits (the user's wish: at first they went at any scale below 1). The
+    // apps in no section keep the size set. A tile's measures, in its section or out of one (the Cell*
+    // above are the latter's).
     // A slider, 1 down to 0.5 in twentieths (the user's wish: a choice of 3/4, 2/3, 1/2 had two too
     // close and too big a jump to the last; then tenths were too few).
     constexpr int SectionScaleMin = 50;
@@ -604,12 +606,12 @@ namespace
         float s = SectionScale();
         TileDims d{};
         d.w = std::round(CellWidth() * s);
-        d.h = d.w;
+        d.names = g_config.appNames && d.w >= TileSizeMin;
+        d.h = d.w + (d.names ? NameRoom : 0);
         d.gap = std::round(TileGap() * s);
         d.icon = std::min(std::round(g_config.iconSize * s), d.w - 2 * std::round(IconPadMin * s));
-        d.iconTop = std::round((d.h - d.icon) / 2);
+        d.iconTop = std::round((d.h - d.icon - (d.names ? 4 + NameLineH : 0)) / 2);
         d.labelTop = d.iconTop + d.icon + 4;
-        d.names = false;
         return d;
     }
 
