@@ -584,6 +584,33 @@ namespace
     float CellIconTop() { return std::round((CellH() - CellIcon() - (g_config.appNames ? 4 + NameLineH : 0)) / 2); }
     float CellLabelTop() { return CellIconTop() + CellIcon() + 4; }
 
+    // The sections' tiles may be smaller than the rest (config `sectionScale`, the user's wish,
+    // 18.10.2026: more of them to a section's row): the tile, its icon and the gap between tiles all by
+    // the same share, and no names (at half there is no room for one). The apps in no section keep the
+    // size set. A tile's measures, in its section or out of one (the Cell* above are the latter's).
+    constexpr float SectionScales[] = {1.f, 3 / 4.f, 2 / 3.f, 1 / 2.f};
+    float SectionScale() { return SectionScales[std::clamp(g_config.sectionScale, 0, int(std::size(SectionScales)) - 1)]; }
+    struct TileDims
+    {
+        float w, h, gap, icon, iconTop, labelTop;
+        bool names;
+    };
+    TileDims Dims(bool grouped)
+    {
+        if (!grouped || SectionScale() == 1)
+            return {CellWidth(), CellH(), TileGap(), CellIcon(), CellIconTop(), CellLabelTop(), g_config.appNames};
+        float s = SectionScale();
+        TileDims d{};
+        d.w = std::round(CellWidth() * s);
+        d.h = d.w;
+        d.gap = std::round(TileGap() * s);
+        d.icon = std::min(std::round(g_config.iconSize * s), d.w - 2 * std::round(IconPadMin * s));
+        d.iconTop = std::round((d.h - d.icon) / 2);
+        d.labelTop = d.iconTop + d.icon + 4;
+        d.names = false;
+        return d;
+    }
+
     float FolderWidth() { return std::clamp(float(g_config.folderWidth), FolderMinW(), FolderMaxW); }
     float FolderLeft() { return FolderRight - FolderWidth(); }
     // With the folder column off (config `folders`, the user's wish: some want the apps alone), the line
@@ -669,24 +696,27 @@ namespace
     // Within a side-by-side section its own grid (the user's wish: its right end stayed bare, then the
     // room was uneven): its tiles spread evenly across its box, the same room at the box's sides as
     // between them, never less than the gap set; down, the gap set (the user found the rows right).
-    // With one column, the menu's grid.
+    // With one column and the tiles their size set, the menu's grid; smaller (SectionScale), their own.
+    bool SectionOwnGrid() { return SectionColumnCount() > 1 || SectionScale() != 1; }
     int SectionColumnTiles()
     {
-        if (SectionColumnCount() == 1)
+        if (!SectionOwnGrid())
             return Columns();
-        float box = SectionColumnWidth() + 2 * SectionPad, gap = TileGap();
-        return std::max(1, int((box - gap) / (CellWidth() + gap)));
+        auto d = Dims(true);
+        float box = SectionColumnWidth() + 2 * SectionPad;
+        return std::max(1, int((box - d.gap) / (d.w + d.gap)));
     }
     float SectionTileGap()
     {
-        if (SectionColumnCount() == 1)
-            return TileGap();
+        auto d = Dims(true);
+        if (!SectionOwnGrid())
+            return d.gap;
         int k = SectionColumnTiles();
-        return std::max(TileGap(), (SectionColumnWidth() + 2 * SectionPad - k * CellWidth()) / (k + 1));
+        return std::max(d.gap, (SectionColumnWidth() + 2 * SectionPad - k * d.w) / (k + 1));
     }
-    float SectionTileStep() { return CellWidth() + SectionTileGap(); }
+    float SectionTileStep() { return Dims(true).w + SectionTileGap(); }
     // The first tile's left edge in a section from x0: the even room in from its box's edge.
-    float SectionTilesLeft(float x0) { return SectionColumnCount() == 1 ? x0 : x0 - SectionPad + SectionTileGap(); }
+    float SectionTilesLeft(float x0) { return !SectionOwnGrid() ? x0 : x0 - SectionPad + SectionTileGap(); }
 
     // Each column holds its own sections, top to bottom, independent of the others (the user's choice,
     // 16.10.2026: in rows, a tall section left room bare beside its neighbours). A section keeps its
@@ -751,7 +781,8 @@ namespace
                 c = int(std::min_element(height.begin(), height.end()) - height.begin());
             plan[c].push_back(section);
             int rows = std::max(1, (count + across - 1) / across);
-            height[c] += SectionNameRowH() + rows * CellH() + (rows - 1) * TileGap() + 2 * SectionPad + SectionParting();
+            auto d = Dims(true);
+            height[c] += SectionNameRowH() + rows * d.h + (rows - 1) * d.gap + 2 * SectionPad + SectionParting();
         }
         if (g_secDrag && std::any_of(sections.begin(), sections.end(), [](auto const &s)
                                      { return s.first == g_secDrag; }))
@@ -766,7 +797,7 @@ namespace
     {
         GridLayout layout;
         layout.cells.resize(g_pinned.size());
-        float w = CellWidth(), h = CellH(), gap = TileGap(), left = GridLeft();
+        float left = GridLeft();
         float bottom = GridY; // the lowest box's bottom
         // Each section's entries, in order.
         std::unordered_map<int, std::vector<GridEntry>> of;
@@ -785,6 +816,8 @@ namespace
         // the grid's middle, so a short last row is too; whole DIPs, as the rest.
         auto place = [&](int section, float x0, float x1, float first, int across, float g, float start)
         {
+            auto d = Dims(section != 0);
+            float w = d.w, h = d.h, gap = d.gap;
             float tiles = start + (section ? SectionNameRowH() : 0), last = first + (across - 1) * (w + g) + w;
             if (section)
                 layout.headers.push_back({section, {first, start, last, tiles}});
@@ -809,7 +842,7 @@ namespace
             layout.regions.push_back({section, r});
             return rows || section ? r.bottom : start;
         };
-        float boxEnd = place(0, left, left + GridWidth(), left, Columns(), gap, GridY);
+        float boxEnd = place(0, left, left + GridWidth(), left, Columns(), TileGap(), GridY);
         bool above = boxEnd > GridY; // the apps in no section are there
         // The sections, each column down from the same top; each box the gap and 8 under the last's.
         int n = SectionColumnCount(), across = SectionColumnTiles();
@@ -829,11 +862,12 @@ namespace
         {
             // Where the section it starts would go: under the shortest column.
             int c = int(std::min_element(next.begin(), next.end()) - next.begin());
+            auto d = Dims(true);
             float x0 = left + c * step, first = SectionTilesLeft(x0), start = next[c], tiles = start + SectionNameRowH();
-            layout.newZone = box(x0, x0 + SectionColumnWidth(), start, tiles + h);
+            layout.newZone = box(x0, x0 + SectionColumnWidth(), start, tiles + d.h);
             if (auto it = of.find(NewSection); it != of.end() && !it->second.empty())
             {
-                layout.cells[it->second.front().pin] = {first, tiles, first + w, tiles + h};
+                layout.cells[it->second.front().pin] = {first, tiles, first + d.w, tiles + d.h};
                 layout.newZonePressed = true;
             }
         }
@@ -913,10 +947,10 @@ namespace
         static GridLayout layout;
         // Remade when the pins, the columns, the tiles or the gap change, the grid moves in its room,
         // or the sections stand in more or fewer columns.
-        static std::tuple<int, int, float, float, float, float, int, float, bool> made{-1, 0, 0.f, 0.f, 0.f, 0.f, 0, 0.f, false};
-        std::tuple<int, int, float, float, float, float, int, float, bool> now{g_pinsVersion, Columns(), CellWidth(), CellH(), TileGap(),
-                                                                               GridLeft(), SectionColumnCount(), SectionNameRowH(),
-                                                                               g_config.centerUngrouped};
+        static std::tuple<int, int, float, float, float, float, int, float, bool, float> made{-1, 0, 0.f, 0.f, 0.f, 0.f, 0, 0.f, false, 0.f};
+        std::tuple<int, int, float, float, float, float, int, float, bool, float> now{g_pinsVersion, Columns(), CellWidth(), CellH(), TileGap(),
+                                                                                      GridLeft(), SectionColumnCount(), SectionNameRowH(),
+                                                                                      g_config.centerUngrouped, SectionScale()};
         if (now != made)
         {
             made = now;
@@ -2607,16 +2641,21 @@ namespace
     {
         if (g_config.highlightTiles && (!tile.group || g_config.sectionStyle != 1))
             g_dc->FillRoundedRectangle(D2D1::RoundedRect(r, 6, 6), Brush(0x0AFFFFFF));
-        float icon = CellIcon(), left = std::round((r.left + r.right - icon) / 2);
-        float top = r.top + CellIconTop();
-        float label = r.top + CellLabelTop();
+        auto d = Dims(tile.group != 0);
+        float icon = d.icon, left = std::round((r.left + r.right - icon) / 2);
+        float top = r.top + d.iconTop;
+        float label = r.top + d.labelTop;
         Icon(tile, {left, top, left + icon, top + icon});
-        if (g_config.appNames)
+        if (d.names)
             Text(tile.name, g_fmtCell.Get(), {r.left + 4, label, r.right - 4, label + 2 * NameLineH}, 0xFFFFFFFF);
     }
 
     // A section's name row: its name, as the column's title is (bold, lined up with the icons).
-    float SectionNameX(float left) { return std::round(left + (CellWidth() - CellIcon()) / 2 - 1); }
+    float SectionNameX(float left)
+    {
+        auto d = Dims(true);
+        return std::round(left + (d.w - d.icon) / 2 - 1);
+    }
     // The name's top: its row's.
     float SectionNameY(D2D1_RECT_F r) { return r.top; }
 
@@ -3672,7 +3711,7 @@ namespace
         if (!g_hwnd)
             return;
         for (auto &tile : g_pinned)
-            IconOf(tile, int(std::round(CellIcon() * g_dpi / 96.f)));
+            IconOf(tile, int(std::round(Dims(tile.group != 0).icon * g_dpi / 96.f)));
         for (auto &tile : g_folders)
             IconOf(tile, int(std::round(FolderIcon() * g_dpi / 96.f)));
         PumpIcons();
@@ -4675,6 +4714,7 @@ namespace
         SetSectionNames,
         SetSectionStyle,
         SetSectionColumns,
+        SetSectionScale,
         SetSizeHeader,
         SetTilesHeader,
         SetSectionsHeader,
@@ -4687,7 +4727,8 @@ namespace
     // right, not a slider), and the sections' look and columns.
     bool IsChoice(SetPart part)
     {
-        return IsMenuSizeSlider(part) || part == SetGapSlider || part == SetSectionStyle || part == SetSectionColumns || part == SetTint;
+        return IsMenuSizeSlider(part) || part == SetGapSlider || part == SetSectionStyle || part == SetSectionColumns ||
+               part == SetSectionScale || part == SetTint;
     }
     bool IsSlider(SetPart part) { return part == SetSlider || part == SetTileSlider || part == SetIconSlider || part == SetFolderSlider; }
     bool IsHeader(SetPart part) { return part >= SetSizeHeader && part <= SetSectionsHeader; }
@@ -4740,6 +4781,7 @@ namespace
         {SetSectionNames, BlockSections, true},
         {SetSectionStyle, BlockSections, false},
         {SetSectionColumns, BlockSections, false},
+        {SetSectionScale, BlockSections, false},
     };
 
     // Where each item is in its block (its label's top; a toggle's row's), and each block's height: the
@@ -4904,8 +4946,11 @@ namespace
     constexpr wchar_t const *SectionStyleNames[] = {L"Yok", L"Çerçeve", L"Çizgi"};
     constexpr wchar_t const *TileGapNames[] = {L"Sıkı", L"Normal", L"Ferah", L"Çok ferah"};
     constexpr wchar_t const *SectionColumnNames[] = {L"1", L"2", L"3", L"4"};
+    constexpr wchar_t const *SectionScaleNames[] = {L"Normal", L"3/4", L"2/3", L"1/2"}; // SectionScales
     int ChoiceCount(SetPart part)
     {
+        if (part == SetSectionScale)
+            return int(std::size(SectionScaleNames));
         if (part == SetWidthSlider)
             return MenuWidthSteps;
         if (part == SetHeightSlider)
@@ -4926,6 +4971,8 @@ namespace
             return g_config.sectionStyle;
         if (part == SetSectionColumns)
             return SectionColumnCount() - 1;
+        if (part == SetSectionScale)
+            return std::clamp(g_config.sectionScale, 0, int(std::size(SectionScaleNames)) - 1);
         if (part == SetTint)
             return TintIndex();
         return Nearest(TileGaps, g_config.tileGap);
@@ -4940,6 +4987,8 @@ namespace
             g_config.sectionStyle = k;
         else if (part == SetSectionColumns)
             g_config.sectionColumns = k + 1;
+        else if (part == SetSectionScale)
+            g_config.sectionScale = k;
         else if (part == SetTint)
             g_config.tint = TintSetting(k);
         else
@@ -4953,6 +5002,8 @@ namespace
             return MenuHeightNames[k];
         if (part == SetSectionColumns)
             return SectionColumnNames[k];
+        if (part == SetSectionScale)
+            return SectionScaleNames[k];
         if (part == SetTint)
             return TintChoices[k].name;
         return part == SetSectionStyle ? SectionStyleNames[k] : TileGapNames[k];
@@ -5206,6 +5257,7 @@ namespace
         wchar_t const *label = part == SetWidthSlider ? L"Genişlik" : part == SetHeightSlider ? L"Yükseklik"
                                                                   : part == SetGapSlider      ? L"Uygulama aralığı"
                                                                   : part == SetSectionColumns ? L"Grup sütunları"
+                                                                  : part == SetSectionScale   ? L"Grup ölçeği"
                                                                                               : L"Grup vurgusu";
         std::wstring value = part == SetWidthSlider
                                  ? std::to_wstring(int(MenuWidthOf(g_config.menuWidthStep))) + L" px · " + std::to_wstring(Columns()) + L" sütun"
@@ -5518,7 +5570,7 @@ namespace
             g_menuSizing = true;
             g_resizePending = true;
         }
-        else if (part == SetGapSlider || part == SetSectionColumns)
+        else if (part == SetGapSlider || part == SetSectionColumns || part == SetSectionScale)
         {
             DropHovers(true); // sized for the old places
             ClampScrolls();
@@ -5681,6 +5733,18 @@ namespace
         slide.InsertKeyFrame(1.f, to, Bezier(0.1f, 0.9f, 0.2f, 1.f));
         slide.Duration(time);
         return slide;
+    }
+
+    // A tile going into a section of smaller tiles or out of one (SectionScale) grows or shrinks to its
+    // new size as it slides there, from its top left; the grid draws it sharp once it has settled.
+    void ScaleTo(wuc::Visual const &visual, float scale)
+    {
+        if (std::abs(scale - 1) < 0.001f)
+            return;
+        auto grow = g_compositor.CreateVector3KeyFrameAnimation();
+        grow.InsertKeyFrame(1.f, {scale, scale, 1}, Bezier(0.1f, 0.9f, 0.2f, 1.f));
+        grow.Duration(TileTime);
+        visual.StartAnimation(L"Scale", grow);
     }
 
     // Something drawn once into a sprite of its own, w x h.
@@ -5883,17 +5947,18 @@ namespace
     {
         if (!g_dragVisual)
             return;
-        float h = g_dragFolders ? FolderRowH() : CellH();
+        float h = g_dragFolders ? FolderRowH() : Dims(g_pinned[g_dragPin].group != 0).h;
         float x = g_dragFolders ? FolderLeft() : g_mouse.x - g_dragGrab.x;
         float y = std::clamp(g_mouse.y - g_dragGrab.y, ContentTop - h / 2, ContentBottom - h / 2);
         g_dragVisual.Offset({Px(x), Px(y), 0});
     }
 
-    // A cell's icon.
-    D2D1_RECT_F IconRect(D2D1_RECT_F cell)
+    // A cell's icon, in a section or out of one.
+    D2D1_RECT_F IconRect(D2D1_RECT_F cell, bool grouped)
     {
-        float icon = CellIcon(), left = std::round((cell.left + cell.right - icon) / 2);
-        float top = cell.top + CellIconTop();
+        auto d = Dims(grouped);
+        float icon = d.icon, left = std::round((cell.left + cell.right - icon) / 2);
+        float top = cell.top + d.iconTop;
         return {left, top, left + icon, top + icon};
     }
 
@@ -5910,7 +5975,8 @@ namespace
             // for none (else the app would jump to its section's end there); across, a section's own
             // gap, which may be wider.
             auto tile = layout.cells[e.pin];
-            float half = TileGap() / 2, across = e.section ? (SectionTileStep() - CellWidth()) / 2 : half;
+            auto d = Dims(e.section != 0);
+            float half = d.gap / 2, across = e.section ? (SectionTileStep() - d.w) / 2 : half;
             D2D1_RECT_F cell{tile.left - across, tile.top - half, tile.right + across, tile.bottom + half};
             if (e.pin == g_dragPin)
             {
@@ -5921,7 +5987,7 @@ namespace
             int k = count[e.section]++;
             if (!Inside(cell, middle))
                 continue;
-            auto icon = IconRect(tile);
+            auto icon = IconRect(tile, e.section != 0);
             if (e.section != g_dragTarget.section)
             {
                 bool after = Inside(icon, middle) || middle.x >= (cell.left + cell.right) / 2;
@@ -5979,7 +6045,8 @@ namespace
             }
             return;
         }
-        auto at = TargetAt({g_mouse.x - g_dragGrab.x + CellWidth() / 2, g_mouse.y - g_dragGrab.y + CellH() / 2});
+        auto lifted = Dims(g_pinned[g_dragPin].group != 0); // the lifted tile keeps its size till let go
+        auto at = TargetAt({g_mouse.x - g_dragGrab.x + lifted.w / 2, g_mouse.y - g_dragGrab.y + lifted.h / 2});
         if (at == g_dragTarget)
         {
             g_hasPending = false;
@@ -6005,7 +6072,7 @@ namespace
     // under it if `lifted`.
     wuc::SpriteVisual TileVisual(int pin, bool lifted)
     {
-        auto slot = SlotRect(0);
+        auto slot = g_dragFolders ? SlotRect(0) : PinnedRect(pin); // a section's tiles may be smaller
         float w = slot.right - slot.left, h = slot.bottom - slot.top;
         return DrawnVisual(w, h, [w, h, pin, lifted]
                            {
@@ -6049,7 +6116,7 @@ namespace
         if (!g_dragFolders)
         {
             // Its box's size, as LayOutSections makes it.
-            float w = SectionColumnWidth() + 2 * SectionPad, h = SectionNameRowH() + CellH() + 2 * SectionPad;
+            float w = SectionColumnWidth() + 2 * SectionPad, h = SectionNameRowH() + Dims(true).h + 2 * SectionPad;
             g_newZoneVisual = DrawnVisual(w, h, [w, h]
                                           { DrawNewZone({0, 0, w, h}); });
             g_newZonePressed = DrawnVisual(w, h, [w, h]
@@ -6326,6 +6393,7 @@ namespace
                 continue;
             auto const &r = after.cells[it - g_pinned.begin()];
             g_dragTileVisuals[i].StartAnimation(L"Offset", SlideTo({Px(r.left), Px(r.top), 0}));
+            ScaleTo(g_dragTileVisuals[i], (r.right - r.left) / (before.cells[i].right - before.cells[i].left));
         }
         for (auto const &header : g_dragHeaders)
         {
@@ -6484,6 +6552,7 @@ namespace
         auto at = Snapped(DragLayout().cells[g_dragPin], g_scroll);
         g_dragVisual.StartAnimation(L"Offset", SlideTo({Px(at.left), Px(at.top), 0}));
         Animate(g_dragVisual, L"Opacity", 1, TileTime, ease);
+        ScaleTo(g_dragVisual, (at.right - at.left) / Dims(g_pinned[g_dragPin].group != 0).w);
         batch.End();
         batch.Completed([generation](auto &&, auto &&)
                         {

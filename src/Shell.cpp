@@ -88,6 +88,7 @@ Config LoadConfig()
     if (root.Find(L"sectionStyle")) config.sectionStyle = std::clamp(int(root.Num(L"sectionStyle", 0)), 0, 2);
     else config.sectionStyle = root.Flag(L"highlightSections", false) ? 1 : 0;
     config.sectionColumns = std::clamp(int(root.Num(L"sectionColumns", config.sectionColumns)), 1, 4);
+    config.sectionScale = std::clamp(int(root.Num(L"sectionScale", config.sectionScale)), 0, 3);
     config.sectionNames = root.Flag(L"sectionNames", config.sectionNames);
     config.centerUngrouped = root.Flag(L"centerUngrouped", config.centerUngrouped);
     // A switch for the accent colour first (accentTint), then a choice of colours.
@@ -155,6 +156,7 @@ void SaveSettings(Config const& config)
     root.Remove(L"highlightSections");
     root.Set(L"sectionStyle", JsonValue::Number(config.sectionStyle));
     root.Set(L"sectionColumns", JsonValue::Number(config.sectionColumns));
+    root.Set(L"sectionScale", JsonValue::Number(config.sectionScale));
     root.Set(L"sectionNames", JsonValue::Bool(config.sectionNames));
     root.Set(L"centerUngrouped", JsonValue::Bool(config.centerUngrouped));
     root.Remove(L"accentTint");
