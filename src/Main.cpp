@@ -156,6 +156,7 @@ namespace
         KeySort = 2993,
         KeyAllApps = 2996,
         KeySplitter = 2997,
+        KeyMenuSettings = 2998,
         KeyAccount = 2999,
         KeyResult = 3000
     };
@@ -1289,6 +1290,15 @@ namespace
         return Snapped({x, y, x + AccountH, y + AccountH}, 0);
     }
 
+    // The menu settings button, left of the picture in the room before it (the user's wish: it was
+    // hard to reach in the account menu): a small one like the bar's, the bar's gap from the picture.
+    D2D1_RECT_F MenuSettingsRect()
+    {
+        float size = BarButton - 2 * BarSmallInset, right = AccountRect().left - BarGap;
+        float y = ContentBottom + std::floor((BarH - BarButton) / 2) + BarSmallInset;
+        return {right - size, y, right, y + size};
+    }
+
     D2D1_RECT_F KeyRect(int key)
     {
         if (key >= KeyResult)
@@ -1299,6 +1309,8 @@ namespace
             return SortButtonRect(key - KeySort);
         if (key == KeyAccount)
             return AccountRect();
+        if (key == KeyMenuSettings)
+            return MenuSettingsRect();
         if (key == KeySearchBack)
             return SearchBackRect();
         if (key == KeyFolderAdd)
@@ -1430,6 +1442,8 @@ namespace
         }
         if (Inside(AccountRect(), p))
             return KeyAccount;
+        if (Inside(MenuSettingsRect(), p))
+            return KeyMenuSettings;
         for (int i = 0; i < BarCount; i++)
             if (g_barShown[i] && Inside(BarRect(i), p))
                 return KeyBar + i;
@@ -1984,7 +1998,7 @@ namespace
     {
         if (key == KeySearchBack)
             return (r.bottom - r.top) / 2;
-        return key == KeyAccount || (key >= KeyBar && key < KeyBar + BarCount) ? (r.right - r.left) / 2 : 6;
+        return key == KeyAccount || key == KeyMenuSettings || (key >= KeyBar && key < KeyBar + BarCount) ? (r.right - r.left) / 2 : 6;
     }
 
     wuc::CompositionSurfaceBrush ShapeFor(D2D1_RECT_F r, float radius = 6)
@@ -3179,6 +3193,7 @@ namespace
     void DrawBar()
     {
         DrawAccount();
+        DrawGlyph(L'\xE771', g_fmtBarGlyph.Get(), MenuSettingsRect(), false);
         // The power button always sits in a thin ring (user's choice), its hover filling the circle.
         auto power = BarRect(PowerButton);
         float ring = (power.right - power.left) / 2 - 0.5f;
@@ -4544,10 +4559,7 @@ namespace
     std::vector<FlyoutItem> AccountItems()
     {
         return {
-            // The menu's own settings panel; the menu stays open (user's choice: not a right click on
-            // empty space, not the tray, which took the focus and so closed the menu).
-            {L"Menü ayarları", L'\xE771', []
-             { OpenSettings(); }},
+            // No "menu settings" here: its own button left of the picture (MenuSettingsRect).
             // No "lock" here: the power menu has it.
             {L"Hesap ayarları", L'\xE77B', []
              { HideMenu(); OpenTarget(L"ms-settings:yourinfo"); }},
@@ -7108,6 +7120,8 @@ namespace
             return PickFolder();
         if (key == KeyAllApps)
             return ShowAllApps(!g_allApps);
+        if (key == KeyMenuSettings)
+            return OpenSettings(); // the menu stays open; with the panel open a click closes it (see WM_LBUTTONDOWN)
         if (key >= KeySort && key < KeySort + SortCount)
         {
             if (g_config.appsSort == key - KeySort)
