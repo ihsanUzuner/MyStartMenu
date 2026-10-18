@@ -136,6 +136,7 @@ namespace
         TimerAppsChanged = 2,
         TimerDragScroll,
         TimerTakeForeground,
+        TimerTip,
         TimerHideScrollbar
     }; // the last, one per scrollbar (+ bar)
 
@@ -2040,8 +2041,11 @@ namespace
         Animate(HoverLayerFor(key), L"Opacity", to, HoverTime, Bezier(0.5f, 1.f, 0.89f, 1.f));
     }
 
+    void HideTip();
+
     void DropHovers(bool contentOnly)
     {
+        HideTip(); // placed for what was under the pointer
         for (auto it = g_hoverLayers.begin(); it != g_hoverLayers.end();)
         {
             if (contentOnly && !IsContentKey(it->first))
@@ -4193,6 +4197,7 @@ namespace
     {
         if (!g_visible || g_closing)
             return;
+        HideTip();
         g_closing = true;
         EndRename(true); // a name being edited is kept, as a text box keeps its text when left
         if (g_caretVisual)
@@ -7064,6 +7069,81 @@ namespace
         HideMenu();
     }
 
+    // ---- Name tips ----
+    //
+    // A tile that does not show its name (config `appNames` off, a section's tiles scaled too small for
+    // one, the folder column narrowed to its icons) shows it in a tip once the pointer rests on it, as
+    // Windows' tooltips do (the user's wish), under it (over it near the menu's bottom). Not a window of
+    // its own (Windows' tooltip would come unthemed without the common controls in the manifest): a
+    // visual over everything in the menu's tree, fading in. Gone as the pointer moves on, scrolls,
+    // presses or drags, and as the menu closes.
+    constexpr auto TipDelay = 500ms;
+    constexpr float TipPadX = 8, TipH = 26, TipMaxW = 320;
+    wuc::SpriteVisual g_tip{nullptr};
+    int g_tipKey = KeyNone;
+
+    // The name a key's tile leaves out, if any.
+    std::wstring HiddenName(int key)
+    {
+        if (key >= KeyPinned && key < KeyFolder && key - KeyPinned < int(g_pinned.size()))
+        {
+            auto const &tile = g_pinned[key - KeyPinned];
+            return Dims(tile.group != 0).names ? L"" : tile.name;
+        }
+        if (key >= KeyFolder && key < KeyBar && key - KeyFolder < int(g_folders.size()))
+            return FolderNames() ? L"" : g_folders[key - KeyFolder].name;
+        return L"";
+    }
+
+    void HideTip()
+    {
+        if (g_hwnd)
+            KillTimer(g_hwnd, TimerTip);
+        g_tipKey = KeyNone;
+        if (g_tip)
+        {
+            if (auto parent = g_tip.Parent())
+                parent.Children().Remove(g_tip);
+            g_tip = nullptr;
+        }
+    }
+
+    // The pointer came onto `key` (UpdateHot): its tip after a moment, if its name is left out.
+    void ArmTip(int key)
+    {
+        HideTip();
+        if (!g_compositor || HiddenName(key).empty())
+            return;
+        g_tipKey = key;
+        SetTimer(g_hwnd, TimerTip, UINT(TipDelay.count()), nullptr);
+    }
+
+    void ShowTip()
+    {
+        KillTimer(g_hwnd, TimerTip);
+        if (g_tipKey != g_hot || g_pinDragging || g_settling || g_secDragging || !g_visible || g_closing || g_tip)
+            return;
+        std::wstring name = HiddenName(g_tipKey);
+        if (name.empty())
+            return;
+        float w = std::min(TipMaxW, std::ceil(TextWidth(name, g_fmtName.Get())) + 2 * TipPadX), h = TipH;
+        auto r = KeyRect(g_tipKey);
+        float x = std::clamp(std::round((r.left + r.right - w) / 2), 8.f, MenuW - 8 - w);
+        float y = std::round(r.bottom + 6);
+        if (y + h > ContentBottom - 4)
+            y = std::round(r.top - 6 - h);
+        g_tip = DrawnVisual(w, h, [w, h, name]
+                            {
+            g_dc->FillRoundedRectangle(D2D1::RoundedRect({0, 0, w, h}, 4, 4), Brush(0xFF2B2B2B));
+            D2D1_RECT_F edge{0.5f, 0.5f, w - 0.5f, h - 0.5f};
+            g_dc->DrawRoundedRectangle(D2D1::RoundedRect(edge, 3.5f, 3.5f), Brush(0x1FFFFFFF), 1);
+            Text(name, g_fmtName.Get(), {TipPadX, 0, w - TipPadX, h}, 0xFFFFFFFF); });
+        g_tip.Offset({Px(x), Px(y), 0});
+        g_tip.Opacity(0);
+        g_main.body.Children().InsertAtTop(g_tip);
+        Animate(g_tip, L"Opacity", 1, HoverTime, g_compositor.CreateLinearEasingFunction());
+    }
+
     void UpdateHot()
     {
         if (g_splitDragging || g_scrollDragging || g_pinDragging)
@@ -7080,6 +7160,7 @@ namespace
         FadeTo(g_hot, g_hot == g_keyFocus ? 1.f : 0.f); // the arrows' pick stays lit
         g_hot = key;
         FadeTo(key, 1);
+        ArmTip(key);
     }
 
     // ---- Keyboard on the home view ----
@@ -7468,6 +7549,7 @@ namespace
             }
             return 0;
         case WM_LBUTTONDOWN:
+            HideTip();
             // A click anywhere in the menu just closes an open flyout, like a click outside a popup menu.
             if (g_flyOpen)
             {
@@ -7571,6 +7653,7 @@ namespace
             return 0;
         }
         case WM_RBUTTONUP:
+            HideTip();
             // Right-clicking a pin, a search result or a section's name opens its context menu at the
             // pointer (closing any other first). In a name being edited it does nothing.
             if (g_renaming && Inside(NameBoxRect(), g_mouse))
@@ -7595,6 +7678,7 @@ namespace
             if (g_secDragging)
                 return 0;
             EndRename(true);
+            HideTip();
             float delta = GET_WHEEL_DELTA_WPARAM(wparam) / 120.f * 60;
             if (InFolderColumn(g_mouse))
             {
@@ -7647,6 +7731,8 @@ namespace
                 DragScrollTick();
             else if (wparam == TimerHideScrollbar || wparam == TimerHideScrollbar + 1)
                 HideScrollbar(int(wparam - TimerHideScrollbar));
+            else if (wparam == TimerTip)
+                ShowTip();
             else if (wparam == TimerAppsChanged)
             {
                 KillTimer(hwnd, TimerAppsChanged);
