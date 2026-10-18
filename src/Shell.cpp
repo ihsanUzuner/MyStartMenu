@@ -10,6 +10,7 @@
 #include <powrprof.h>
 #include <wincodec.h>
 #include <taskschd.h>
+#include <userenv.h>
 #define SECURITY_WIN32
 #include <security.h>
 #include <wrl/client.h>
@@ -519,6 +520,38 @@ int RunEmptyRecycleBinHelper()
     // Windows' own confirmation, progress and sound, as Explorer's "Empty Recycle Bin".
     SHEmptyRecycleBinW(nullptr, nullptr, 0);
     return 0;
+}
+
+void UseUserEnvironment()
+{
+    HANDLE token{};
+    if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY | TOKEN_DUPLICATE, &token)) return;
+    void *block{};
+    bool ok = CreateEnvironmentBlock(&block, token, FALSE);
+    CloseHandle(token);
+    if (!ok) return;
+
+    // Our own variables (MYSTARTMENU_CONFIG for tests) and the hidden "=C:" current directories stay.
+    auto kept = [](std::wstring_view name)
+    { return name.empty() || name.starts_with(L"MYSTARTMENU_"); };
+    auto names = [](wchar_t const *strings)
+    {
+        std::vector<std::wstring> out;
+        for (wchar_t const *s = strings; *s; s += wcslen(s) + 1)
+            if (wchar_t const *eq = wcschr(s + 1, L'='))
+                out.emplace_back(s, eq);
+        return out;
+    };
+    if (wchar_t *current = GetEnvironmentStringsW())
+    {
+        for (auto const& name : names(current))
+            if (!kept(name)) SetEnvironmentVariableW(name.c_str(), nullptr);
+        FreeEnvironmentStringsW(current);
+    }
+    for (wchar_t const *s = static_cast<wchar_t const*>(block); *s; s += wcslen(s) + 1)
+        if (wchar_t const *eq = wcschr(s + 1, L'='); eq && !kept(std::wstring_view(s, eq - s)))
+            SetEnvironmentVariableW(std::wstring(s, eq).c_str(), eq + 1);
+    DestroyEnvironmentBlock(block);
 }
 
 void LaunchApp(std::wstring const& id)

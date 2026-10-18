@@ -8201,6 +8201,8 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int)
     if (argc == 2 && std::wstring_view(argv[1]) == L"--empty-recycle-bin")
         return RunEmptyRecycleBinHelper();
 
+    UseUserEnvironment();
+
     std::wstring renderFolder;
     bool background = false;
     for (int i = 1; i < argc; i++)

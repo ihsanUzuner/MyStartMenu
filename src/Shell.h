@@ -141,6 +141,11 @@ uint64_t FileTimeNow();
 // in either Start menu Programs folder, or in the current user's list of packaged apps.
 void WatchAppChanges(HWND__* notify, unsigned message);
 
+// Replaces this process' environment with the user's default one, as Explorer gives programs it
+// starts. Whatever started the menu (e.g. a VS Code terminal, whose ELECTRON_RUN_AS_NODE=1 made
+// Code.exe run as Node and exit) would otherwise leak into every app the menu launches.
+void UseUserEnvironment();
+
 // An app's id is its name inside shell:AppsFolder, or, for pins of shortcuts, the full path of
 // the shortcut (or any file or folder).
 void LaunchApp(std::wstring const& id);
