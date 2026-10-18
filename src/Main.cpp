@@ -1140,6 +1140,11 @@ namespace
         return ListY + std::max(0.f, SplitBottom - ListY - std::max<size_t>(g_results.size(), 1) * RowH);
     }
 
+    // The top of what scrolls on the apps side. The every-apps list's title row (its title, sort
+    // buttons and "‹ Geri") stays put, the rows passing under it (the user's wish: they scrolled away
+    // with the list, and changing the sort meant going back to the top).
+    float AppsViewTop() { return g_allApps ? GridY - 8 : SplitTop; }
+
     // Where result i is in the list as drawn, from the top.
     int ResultSlot(int i) { return ResultsUpward() ? int(g_results.size()) - 1 - i : i; }
 
@@ -1167,19 +1172,20 @@ namespace
     constexpr int SortCount = int(std::size(SortNames));
     constexpr wchar_t AllAppsTitle[] = L"Tüm uygulamalar";
 
-    // The every-apps list's sort buttons, after its title and count, scrolling with them.
+    // The every-apps list's sort buttons, after its title and count, in its fixed title row.
     D2D1_RECT_F SortButtonRect(int i)
     {
         float x = 32 + TextWidth(AllAppsTitle, g_fmtTitle.Get()) + 8 + TextWidth(std::to_wstring(g_apps.size()), g_fmtName.Get()) + 16;
         for (int j = 0; j < i; j++)
             x += TextWidth(SortNames[j], g_fmtName.Get()) + 24 + 4;
-        float w = TextWidth(SortNames[i], g_fmtName.Get()) + 24, cy = TitleY + 10 - g_scroll;
+        float w = TextWidth(SortNames[i], g_fmtName.Get()) + 24, cy = TitleY + 10;
         x = std::round(x);
         return {x, cy - 14, std::round(x + w), cy + 14};
     }
 
-    // The button at the apps title row's end, scrolling with it, like Windows' "All >": it opens the
-    // every-apps list, and in the list it goes back. Always there outside the search view.
+    // The button at the apps title row's end, like Windows' "All >": it opens the every-apps list,
+    // scrolling with the grid, and in the list it goes back, in the list's fixed title row. Always there
+    // outside the search view.
     float TextWidth(std::wstring_view text, IDWriteTextFormat *format);
     wchar_t const *AllAppsButtonText() { return g_allApps ? L"Geri" : L"Tüm uygulamalar"; }
     constexpr float ButtonPad = 10, ChevronW = 5, ChevronGap = 8;
@@ -1188,7 +1194,7 @@ namespace
     {
         // On the grid, its right edge on the grid's (the last tile's), inside the sections' boxes (the
         // user's wish: it stood out past them); over the every-apps list, on the list's.
-        float right = g_allApps ? FolderSplit() - 16 : GridLeft() + GridWidth(), cy = TitleY + 10 - g_scroll;
+        float right = g_allApps ? FolderSplit() - 16 : GridLeft() + GridWidth(), cy = TitleY + 10 - (g_allApps ? 0 : g_scroll);
         float w = std::round(ButtonPad + TextWidth(AllAppsButtonText(), g_fmtName.Get()) + ChevronGap + ChevronW + ButtonPad);
         return {right - w, cy - 13, right, cy + 13};
     }
@@ -1352,6 +1358,8 @@ namespace
             }
             if (ShowingList())
             {
+                if (p.y < AppsViewTop())
+                    return KeyNone; // under the every-apps list's title row
                 // Letter headings are not items.
                 int slot = int((p.y - ListTop() + g_scroll) / RowH);
                 if (p.y - ListTop() + g_scroll >= 0 && slot < int(g_results.size()))
@@ -1946,7 +1954,7 @@ namespace
     // What scrolls with the apps side: the pins, the list rows, the list's title-row buttons.
     bool IsAppsKey(int key)
     {
-        return (key >= KeyPinned && key < KeyFolder) || key >= KeyResult || (key >= KeySort && key <= KeyAllApps);
+        return (key >= KeyPinned && key < KeyFolder) || key >= KeyResult || (key >= KeySort && key <= KeyAllApps && !g_allApps);
     }
 
     wuc::ContainerVisual HoverContainer(int key)
@@ -2530,7 +2538,7 @@ namespace
     }
 
     void DrawResults();
-    void DrawAllApps();
+    void DrawAllAppsHeader();
     void DrawPinnedGrid();
     void DrawFolderColumn();
 
@@ -2567,10 +2575,8 @@ namespace
     // Live, it is drawn into the apps layer (DrawAppsLayer); only --render draws it with the rest.
     void DrawAppsSide()
     {
-        if (SearchView())
+        if (ShowingList())
             DrawResults();
-        else if (g_allApps)
-            DrawAllApps();
         else
             DrawPinnedGrid();
     }
@@ -2579,7 +2585,13 @@ namespace
     void DrawHome()
     {
         if (!g_compositor)
+        {
+            g_dc->PushAxisAlignedClip({0, AppsViewTop(), MenuW, SplitBottom}, D2D1_ANTIALIAS_MODE_ALIASED);
             DrawAppsSide();
+            g_dc->PopAxisAlignedClip();
+        }
+        if (g_allApps)
+            DrawAllAppsHeader();
         DrawScrollbar();
         DrawFolderColumn();
     }
@@ -2961,10 +2973,11 @@ namespace
 
     std::vector<AppRef>::iterator PinOfApp(Tile const &app);
 
-    // The every-apps list: its title row (title, count, sort buttons, the "+") over the list.
-    void DrawAllApps()
+    // The every-apps list's title row (title, count, sort buttons, "‹ Geri"): fixed, on the front layer
+    // (DrawHome), the list scrolling under it.
+    void DrawAllAppsHeader()
     {
-        DrawColumnTitle(AllAppsTitle, g_apps.size(), L"", 32, FolderSplit() - 56, g_scroll);
+        DrawColumnTitle(AllAppsTitle, g_apps.size(), L"", 32, FolderSplit() - 56, 0);
         for (int i = 0; i < SortCount; i++)
         {
             // The chosen one filled, as a selected segment; hover adds its own layer on top.
@@ -2980,7 +2993,6 @@ namespace
             }
         }
         DrawAllAppsButton();
-        DrawResults();
     }
 
     void DrawResults()
@@ -3455,7 +3467,7 @@ namespace
     // the "+" row while that is held at the bottom, the rows passing under it.
     void UpdateFades()
     {
-        SetFade(g_appsFade, SplitTop, SplitBottom, g_scroll > 0, g_scroll < MaxScroll());
+        SetFade(g_appsFade, AppsViewTop(), SplitBottom, g_scroll > 0, g_scroll < MaxScroll());
         bool below = g_folderScroll < MaxFolderScroll();
         SetFade(g_folderFade, SplitTop, below ? FolderAddRect().top : SplitBottom, g_folderScroll > 0, below);
     }
@@ -3526,7 +3538,7 @@ namespace
         g_appsSprite.Offset({0, Px(ContentTop - ScrollOverscan), 0});
         g_appsLayer.Size(size);
         g_appsHovers.Size(size);
-        g_appsClip = g_compositor.CreateInsetClip(0, Px(SplitTop), 0, Px(MenuH - SplitBottom));
+        g_appsClip = g_compositor.CreateInsetClip(0, Px(AppsViewTop()), 0, Px(MenuH - SplitBottom));
         g_appsLayer.Clip(g_appsClip);
         // The folder list's layer: its surface is made on the next draw, at the new scale.
         for (auto visual : {g_folderLayer.as<wuc::Visual>(), g_folderHovers.as<wuc::Visual>(), g_folderTilesHost.as<wuc::Visual>()})
@@ -4067,6 +4079,8 @@ namespace
             PlaceStartHighlight(r, true);
     }
 
+    void PlaceAppsClip();
+
     void ShowMenu()
     {
         if (g_visible && !g_closing)
@@ -4089,6 +4103,7 @@ namespace
         g_search.caret = g_search.anchor = 0;
         g_search.scroll = g_scroll = g_folderScroll = 0;
         g_allApps = false;
+        PlaceAppsClip(); // as the home view's, should the list have been left open
         g_results.clear();
         g_searching = false;
         g_searchIconsBack = -1; // the magnifier at once, not played back from a search left open
@@ -6871,16 +6886,30 @@ namespace
     // fades in. The search results, which run up from the box, unroll upward the same way (the
     // clip's top edge sliding up; the user's wish). The layer is drawn once, on the next render;
     // nothing is drawn per frame.
-    void RevealApps(bool upward)
+    // The apps layer's clip at rest: the scrolling view, below the every-apps list's title row while
+    // that is open (AppsViewTop).
+    void PlaceAppsClip()
     {
-        if (!g_compositor || !g_visible)
+        if (!g_appsClip)
             return;
         g_appsClip.StopAnimation(L"TopInset");
         g_appsClip.StopAnimation(L"BottomInset");
+        g_appsClip.TopInset(Px(AppsViewTop()));
+        g_appsClip.BottomInset(Px(MenuH - SplitBottom));
+    }
+
+    void RevealApps(bool upward)
+    {
+        if (!g_compositor)
+            return;
+        if (!g_visible)
+            return PlaceAppsClip();
+        g_appsClip.StopAnimation(L"TopInset");
+        g_appsClip.StopAnimation(L"BottomInset");
         g_appsLayer.StopAnimation(L"Opacity");
-        float top = Px(SplitTop), bottom = Px(MenuH - SplitBottom);
+        float top = Px(AppsViewTop()), bottom = Px(MenuH - SplitBottom);
         g_appsClip.TopInset(upward ? Px(SplitBottom) : top);
-        g_appsClip.BottomInset(upward ? bottom : Px(MenuH - SplitTop));
+        g_appsClip.BottomInset(upward ? bottom : Px(MenuH) - top);
         g_appsLayer.Opacity(0);
         auto ease = Bezier(0.1f, 0.9f, 0.2f, 1.f);
         if (upward)
@@ -7046,8 +7075,8 @@ namespace
     void KeepSelectedVisible()
     {
         float top = ListTop() + ResultSlot(g_selected) * RowH;
-        if (top - g_scroll < SplitTop)
-            g_scroll = top - SplitTop;
+        if (top - g_scroll < AppsViewTop())
+            g_scroll = top - AppsViewTop();
         if (top + RowH - g_scroll > SplitBottom)
             g_scroll = top + RowH - SplitBottom;
         g_scroll = std::clamp(g_scroll, 0.f, MaxScroll());
