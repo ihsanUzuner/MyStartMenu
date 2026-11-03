@@ -38,7 +38,7 @@ Requires Windows 11, x64. Nothing else to install.
   which some antivirus programs look at twice.
 - **First run.** The menu copies your current Windows Start pins once; after that its pins are its own and are not
   synced with Windows'.
-- **Turn it off for a while** from the tray icon's menu ("Win tuşu ve Başlat düğmesi bu menüyü açsın"); Windows' own
+- **Turn it off for a while** from the tray icon's menu ("Başlat'ın yerine geçsin"); Windows' own
   Start menu then works as usual.
 
 ### Known limitations

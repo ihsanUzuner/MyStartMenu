@@ -7347,10 +7347,12 @@ namespace
         { return on ? MF_CHECKED : MF_UNCHECKED; };
 
         HMENU menu = CreatePopupMenu();
-        AppendMenuW(menu, MF_STRING | MF_GRAYED, 0, TrayTip().c_str());
+        // The title carries the version instead of the state, which the check below already shows (the tip
+        // keeps it). A tab would right-align it but reserves a shortcut column on every row, widening the menu.
+        AppendMenuW(menu, MF_STRING | MF_GRAYED, 0, (std::wstring(L"Başlat Menüm v") + AppVersion).c_str());
         AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
         AppendMenuW(menu, MF_STRING, CmdOpen, L"Menüyü aç");
-        AppendMenuW(menu, MF_STRING | check(g_config.enabled), CmdEnabled, L"Win tuşu ve Başlat düğmesi bu menüyü açsın");
+        AppendMenuW(menu, MF_STRING | check(g_config.enabled), CmdEnabled, L"Başlat'ın yerine geçsin");
         AppendMenuW(menu, MF_STRING | check(AutostartEnabled()), CmdAutostart, L"Başlangıçta çalıştır");
         AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
         AppendMenuW(menu, MF_STRING, CmdExit, L"Çıkış");

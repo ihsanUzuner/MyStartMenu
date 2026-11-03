@@ -39,7 +39,7 @@ Windows 11, x64 gerektirir. Başka hiçbir şey kurmanız gerekmez.
   kancası kullanır; bazı virüs programları buna ikinci kez bakar.
 - **İlk çalıştırma.** Menü, mevcut Windows Başlat sabitlerinizi bir kez kopyalar; bundan sonra sabitleri kendisinindir
   ve Windows'unkilerle eşitlenmez.
-- Tepsi simgesinin menüsünden ("Win tuşu ve Başlat düğmesi bu menüyü açsın") **bir süreliğine kapatın**; o zaman
+- Tepsi simgesinin menüsünden ("Başlat'ın yerine geçsin") **bir süreliğine kapatın**; o zaman
   Windows'un kendi Başlat menüsü her zamanki gibi çalışır.
 
 ### Bilinen sınırlamalar
