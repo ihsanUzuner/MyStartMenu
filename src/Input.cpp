@@ -35,7 +35,13 @@ void RequestToggle() { PostMessageW(g_notify, g_message, 0, 0); }
 bool OnStartButton(POINT p)
 {
     auto r = g_startButton.load();
-    return r.right > r.left && p.x >= r.left && p.x < r.right && p.y >= r.top && p.y < r.bottom;
+    if (!(r.right > r.left && p.x >= r.left && p.x < r.right && p.y >= r.top && p.y < r.bottom)) return false;
+    // The rectangle stays where the button is even when a full-screen game or video covers the
+    // taskbar; a click there belongs to that window, so the taskbar must be what is under the pointer.
+    // (Our own highlight is click-through and never found here.)
+    wchar_t name[32];
+    HWND under = GetAncestor(WindowFromPoint(p), GA_ROOT);
+    return under && GetClassNameW(under, name, 32) && wcscmp(name, L"Shell_TrayWnd") == 0;
 }
 
 LRESULT CALLBACK KeyboardProc(int code, WPARAM wparam, LPARAM lparam)
