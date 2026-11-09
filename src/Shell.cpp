@@ -5,6 +5,9 @@
 #include <shellapi.h>
 #include <shlobj_core.h>
 #include <shobjidl_core.h>
+#include <exdisp.h>
+#include <shldisp.h>
+#include <shlguid.h>
 #include <propsys.h>
 #include <sddl.h>
 #include <powrprof.h>
@@ -568,22 +571,78 @@ void ShellOpenAsync(std::function<void()> open)
         open();
         CoUninitialize(); }).detach();
 }
+
+// Asks the running Explorer to open the target, as Windows' own Start menu has the shell do: the
+// program then starts as Explorer's child, with Explorer's rights and environment, never ours
+// (so it stays unelevated even if the menu runs elevated). The desktop's folder view hands out
+// the shell's automation object, whose ShellExecute runs inside Explorer.
+bool ExplorerOpen(std::wstring const& file, std::wstring const& args)
+{
+    ComPtr<IShellWindows> windows;
+    if (FAILED(CoCreateInstance(CLSID_ShellWindows, nullptr, CLSCTX_LOCAL_SERVER, IID_PPV_ARGS(&windows)))) return false;
+    VARIANT none{};
+    long hwnd = 0;
+    ComPtr<IDispatch> desktop;
+    if (windows->FindWindowSW(&none, &none, SWC_DESKTOP, &hwnd, SWFO_NEEDDISPATCH, &desktop) != S_OK || !desktop) return false;
+    ComPtr<IServiceProvider> services;
+    ComPtr<IShellBrowser> browser;
+    ComPtr<IShellView> view;
+    ComPtr<IDispatch> background;
+    ComPtr<IShellFolderViewDual> folderView;
+    ComPtr<IDispatch> application;
+    ComPtr<IShellDispatch2> shell;
+    if (FAILED(desktop.As(&services)) ||
+        FAILED(services->QueryService(SID_STopLevelBrowser, IID_PPV_ARGS(&browser))) ||
+        FAILED(browser->QueryActiveShellView(&view)) ||
+        FAILED(view->GetItemObject(SVGIO_BACKGROUND, IID_PPV_ARGS(&background))) ||
+        FAILED(background.As(&folderView)) ||
+        FAILED(folderView->get_Application(&application)) ||
+        FAILED(application.As(&shell)))
+        return false;
+
+    // The menu is in the foreground; the program Explorer starts may take it.
+    DWORD explorer = 0;
+    GetWindowThreadProcessId(HWND(LongToHandle(hwnd)), &explorer);
+    if (explorer) AllowSetForegroundWindow(explorer);
+
+    auto text = [](std::wstring const& s)
+    {
+        VARIANT v{};
+        v.vt = VT_BSTR;
+        v.bstrVal = SysAllocString(s.c_str());
+        return v;
+    };
+    BSTR name = SysAllocString(file.c_str());
+    VARIANT arguments = text(args), folder{}, verb = text(L"open"), show{};
+    show.vt = VT_I4;
+    show.lVal = SW_SHOWNORMAL;
+    HRESULT hr = shell->ShellExecute(name, arguments, folder, verb, show);
+    SysFreeString(name);
+    VariantClear(&arguments);
+    VariantClear(&verb);
+    return SUCCEEDED(hr);
+}
+
+// Explorer first; our own ShellExecute only when Explorer cannot be reached (it is restarting).
+void Open(std::wstring const& target)
+{
+    if (ExplorerOpen(target, {})) return;
+    Log(L"Explorer could not open " + target + L"; opening it directly");
+    if (reinterpret_cast<INT_PTR>(ShellExecuteW(nullptr, L"open", target.c_str(), nullptr, nullptr, SW_SHOWNORMAL)) <= 32)
+        ShellExecuteW(nullptr, L"open", L"explorer.exe", (L"\"" + target + L"\"").c_str(), nullptr, SW_SHOWNORMAL);
+}
 }
 
 void LaunchApp(std::wstring const& id)
 {
-    ShellOpenAsync([target = ShellName(id)]
-                   {
-        if (reinterpret_cast<INT_PTR>(ShellExecuteW(nullptr, L"open", target.c_str(), nullptr, nullptr, SW_SHOWNORMAL)) <= 32)
-            ShellExecuteW(nullptr, L"open", L"explorer.exe", (L"\"" + target + L"\"").c_str(), nullptr, SW_SHOWNORMAL); });
+    ShellOpenAsync([target = ShellName(id)] { Open(target); });
 }
 
 void OpenTarget(std::wstring const& target)
 {
     wchar_t expanded[MAX_PATH];
     ExpandEnvironmentStringsW(target.c_str(), expanded, MAX_PATH);
-    ShellOpenAsync([target = std::wstring(expanded)]
-                   { ShellExecuteW(nullptr, L"open", target.c_str(), nullptr, nullptr, SW_SHOWNORMAL); });
+    ShellOpenAsync([target = std::wstring(expanded)] { Open(target); });
 }
 
 namespace
