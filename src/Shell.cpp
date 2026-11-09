@@ -106,6 +106,7 @@ Config LoadConfig()
     // A switch for the accent colour first (accentTint), then a choice of colours.
     config.tint = root.Find(L"tint") ? std::wstring(root.Str(L"tint")) : root.Flag(L"accentTint", false) ? L"accent" : L"";
     config.highlightTiles = root.Flag(L"highlightTiles", config.highlightTiles);
+    config.runAsAdmin = root.Flag(L"runAsAdmin", config.runAsAdmin);
     config.iconSize = std::clamp(int(root.Num(L"iconSize", config.iconSize)), IconSizeMin, IconSizeMax);
     config.folderIconSize = std::clamp(int(root.Num(L"folderIconSize", config.folderIconSize)), FolderIconMin, FolderIconMax);
     {
@@ -174,6 +175,7 @@ void SaveSettings(Config const& config)
     root.Remove(L"accentTint");
     root.Set(L"tint", JsonValue::String(config.tint));
     root.Set(L"highlightTiles", JsonValue::Bool(config.highlightTiles));
+    root.Set(L"runAsAdmin", JsonValue::Bool(config.runAsAdmin));
     root.Set(L"iconSize", JsonValue::Number(config.iconSize));
     root.Set(L"folderIconSize", JsonValue::Number(config.folderIconSize));
     root.Remove(L"material");  // the glass, tried and taken out (16.10.2026)
@@ -267,32 +269,123 @@ std::wstring XmlEscaped(std::wstring_view text)
         out += c == L'&' ? L"&amp;" : c == L'<' ? L"&lt;" : c == L'>' ? L"&gt;" : std::wstring(1, c);
     return out;
 }
+
+ComPtr<IRegisteredTask> AutostartTask()
+{
+    auto root = TaskRoot();
+    if (!root) return nullptr;
+    ComPtr<IRegisteredTask> task;
+    BSTR name = SysAllocString(TaskName);
+    root->GetTask(name, &task);
+    SysFreeString(name);
+    return task;
+}
+
+// Limited: an administrator running unelevated (UAC's prompt raises it); Full: raised;
+// Default: no split token (a standard user, or UAC off).
+TOKEN_ELEVATION_TYPE ElevationType()
+{
+    HANDLE token{};
+    TOKEN_ELEVATION_TYPE type = TokenElevationTypeDefault;
+    DWORD size = 0;
+    if (OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token))
+    {
+        GetTokenInformation(token, TokenElevationType, &type, sizeof type, &size);
+        CloseHandle(token);
+    }
+    return type;
+}
+
+bool RegisterAutostart(bool elevated);
 }
 
 bool AutostartEnabled()
 {
-    auto root = TaskRoot();
-    if (!root) return false;
-    ComPtr<IRegisteredTask> task;
-    BSTR name = SysAllocString(TaskName);
-    bool found = SUCCEEDED(root->GetTask(name, &task));
-    SysFreeString(name);
+    auto task = AutostartTask();
     VARIANT_BOOL enabled = VARIANT_FALSE;
-    return found && SUCCEEDED(task->get_Enabled(&enabled)) && enabled;
+    return task && SUCCEEDED(task->get_Enabled(&enabled)) && enabled;
 }
 
-void SetAutostart(bool enabled)
+bool AutostartElevated()
+{
+    auto task = AutostartTask();
+    ComPtr<ITaskDefinition> definition;
+    ComPtr<IPrincipal> principal;
+    TASK_RUNLEVEL_TYPE level = TASK_RUNLEVEL_LUA;
+    return task && SUCCEEDED(task->get_Definition(&definition)) && SUCCEEDED(definition->get_Principal(&principal)) &&
+           SUCCEEDED(principal->get_RunLevel(&level)) && level == TASK_RUNLEVEL_HIGHEST;
+}
+
+bool IsElevated()
+{
+    auto type = ElevationType();
+    return type == TokenElevationTypeFull || (type == TokenElevationTypeDefault && IsUserAnAdmin());
+}
+
+bool CanElevate() { return ElevationType() == TokenElevationTypeLimited; }
+
+bool SetAutostart(bool enabled, bool elevated)
 {
     RegDeleteKeyValueW(HKEY_CURRENT_USER, RunKey, RunValue);  // how older versions started
-    auto root = TaskRoot();
-    if (!root) { Log(L"autostart: no task scheduler"); return; }
-    BSTR name = SysAllocString(TaskName);
     if (!enabled)
     {
-        root->DeleteTask(name, 0);
-        SysFreeString(name);
-        return;
+        if (auto root = TaskRoot())
+        {
+            BSTR name = SysAllocString(TaskName);
+            root->DeleteTask(name, 0);
+            SysFreeString(name);
+        }
+        return true;
     }
+    if (!elevated || IsElevated()) return RegisterAutostart(elevated) || !elevated;
+    // Only an elevated process may register an elevated task: this exe, raised once through
+    // Windows' own prompt (--register-autostart). Declined, the task starts the menu as before.
+    if (CanElevate())
+    {
+        wchar_t exe[MAX_PATH];
+        GetModuleFileNameW(nullptr, exe, MAX_PATH);
+        SHELLEXECUTEINFOW info{ sizeof info };
+        info.fMask = SEE_MASK_NOCLOSEPROCESS | SEE_MASK_NOASYNC;
+        info.lpVerb = L"runas";
+        info.lpFile = exe;
+        info.lpParameters = L"--register-autostart";
+        info.nShow = SW_HIDE;
+        if (ShellExecuteExW(&info) && info.hProcess)
+        {
+            DWORD code = 1;
+            WaitForSingleObject(info.hProcess, 30000);
+            GetExitCodeProcess(info.hProcess, &code);
+            CloseHandle(info.hProcess);
+            if (code == 0) return true;
+        }
+        else
+            Log(L"autostart: not raised: " + std::to_wstring(GetLastError()));
+    }
+    RegisterAutostart(false);
+    return false;
+}
+
+int RunRegisterAutostartHelper() { return IsElevated() && RegisterAutostart(true) ? 0 : 1; }
+
+bool RunAutostartTask()
+{
+    auto task = AutostartTask();
+    ComPtr<IRunningTask> running;
+    VARIANT none{};
+    HRESULT hr = task ? task->Run(none, &running) : E_FAIL;
+    if (FAILED(hr)) Log(L"autostart: task not started: " + std::to_wstring(hr));
+    return SUCCEEDED(hr);
+}
+
+namespace
+{
+// Registers the logon task; elevated, it starts the menu with the user's full rights (which only an
+// elevated process may ask for).
+bool RegisterAutostart(bool elevated)
+{
+    auto root = TaskRoot();
+    if (!root) { Log(L"autostart: no task scheduler"); return false; }
+    BSTR name = SysAllocString(TaskName);
     wchar_t exe[MAX_PATH], user[256];
     GetModuleFileNameW(nullptr, exe, MAX_PATH);
     ULONG userLength = ULONG(std::size(user));
@@ -301,7 +394,7 @@ void SetAutostart(bool enabled)
 <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
   <RegistrationInfo><Description>Başlat Menüm: starts hidden at sign-in, waiting for the Win key.</Description></RegistrationInfo>
   <Triggers><LogonTrigger><Enabled>true</Enabled><UserId>)" + XmlEscaped(user) + LR"(</UserId></LogonTrigger></Triggers>
-  <Principals><Principal id="Author"><UserId>)" + XmlEscaped(user) + LR"(</UserId><LogonType>InteractiveToken</LogonType><RunLevel>LeastPrivilege</RunLevel></Principal></Principals>
+  <Principals><Principal id="Author"><UserId>)" + XmlEscaped(user) + LR"(</UserId><LogonType>InteractiveToken</LogonType><RunLevel>)" + std::wstring(elevated ? L"HighestAvailable" : L"LeastPrivilege") + LR"(</RunLevel></Principal></Principals>
   <Settings>
     <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
     <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
@@ -319,6 +412,8 @@ void SetAutostart(bool enabled)
     if (FAILED(hr)) Log(L"autostart: task not registered: " + std::to_wstring(hr));
     SysFreeString(text);
     SysFreeString(name);
+    return SUCCEEDED(hr);
+}
 }
 
 bool AutostartIsOld()

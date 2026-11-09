@@ -80,6 +80,7 @@ struct Config
     std::wstring tint;
     bool centerUngrouped = false;  // the apps in no section centred in each row, not from the left
     bool highlightTiles = false;     // each pinned app's tile shown as a faint box
+    bool runAsAdmin = true;          // the logon task starts the menu elevated; off when Windows' prompt was declined
     std::vector<AppRef> favorites;
     // The menu's own pins, apps and folders, in order. They were Windows' Start pins, read once
     // when the file had none (hasPins false); since then the menu keeps its own list.
@@ -97,8 +98,19 @@ void SaveSettings(Config const& config);
 uint64_t ConfigStamp();
 
 bool AutostartEnabled();
-void SetAutostart(bool enabled);
+bool AutostartElevated();  // the logon task starts the menu with the user's full (administrator) rights
+// Registers or removes the logon task. Elevated, it brings up Windows' prompt unless this process is
+// elevated itself; declined (or the user no administrator), the task starts the menu unelevated and
+// this returns false.
+bool SetAutostart(bool enabled, bool elevated);
 bool AutostartIsOld();  // set up the old way (a Run value), to be moved to the logon task
+bool RunAutostartTask();  // starts the logon task now
+int RunRegisterAutostartHelper();  // --register-autostart, run elevated: registers the elevated task
+
+// An elevated program in front (a game started as administrator) keeps every keystroke from an
+// unelevated one's hook, so the menu runs elevated when it can; what it opens, Explorer starts.
+bool IsElevated();
+bool CanElevate();  // an administrator whose programs run unelevated until Windows' prompt raises them
 
 // Every app in shell:AppsFolder, sorted by name. Takes a few hundred ms; call off the UI thread.
 std::vector<AppRef> EnumerateApps();

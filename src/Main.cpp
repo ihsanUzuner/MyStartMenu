@@ -22,6 +22,7 @@
 #include <d2d1effects.h>
 #include <dwrite.h>
 #include <wincodec.h>
+#include <sddl.h>
 #include <wrl/client.h>
 #include <DispatcherQueue.h>
 #include <windows.ui.composition.interop.h>
@@ -129,6 +130,7 @@ namespace
         WM_FOLDER_PICKED,           // the folder picker closed, a folder chosen or not
         WM_START_MOVED,             // the taskbar's Start button moved while the menu is open
         WM_PRESSED,                 // a mouse button went down anywhere while the menu is open
+        WM_EXIT_MENU,               // MyStartMenu.exe --exit: close, as the tray's Exit
     };
 
     enum : UINT_PTR
@@ -7375,7 +7377,15 @@ namespace
             UpdateTrayIcon(g_config.enabled, TrayTip());
         }
         else if (command == CmdAutostart)
-            SetAutostart(!AutostartEnabled());
+        {
+            // Turned on again, Windows asks again whether the menu may run elevated (taking effect
+            // at its next start), even if it was declined before.
+            bool on = !AutostartEnabled();
+            if (on) g_config.runAsAdmin = true;
+            bool raise = on && (IsElevated() || CanElevate());
+            if (!SetAutostart(on, raise) && raise) g_config.runAsAdmin = false;
+            SaveConfig();
+        }
         else if (command == CmdExit)
         {
             RemoveTrayIcon();
@@ -7867,6 +7877,10 @@ namespace
         case WM_SHOW_MENU:
             ShowMenu();
             return 0;
+        case WM_EXIT_MENU:
+            RemoveTrayIcon();
+            DestroyWindow(g_hwnd);
+            return 0;
         case WM_TRAY:
             if (lparam == WM_LBUTTONUP)
             {
@@ -7944,6 +7958,10 @@ namespace
         StartInput(g_hwnd, WM_TOGGLE, WM_START_MOVED, WM_PRESSED);
         UseDarkMenus();
         g_taskbarCreated = RegisterWindowMessageW(L"TaskbarCreated");
+        // Elevated, the menu gets only the messages it lets through from Explorer (unelevated):
+        // the tray icon's clicks, and the taskbar's restart to add the icon again.
+        ChangeWindowMessageFilterEx(g_hwnd, WM_TRAY, MSGFLT_ALLOW, nullptr);
+        ChangeWindowMessageFilterEx(g_hwnd, g_taskbarCreated, MSGFLT_ALLOW, nullptr);
         AddTrayIcon(g_hwnd, WM_TRAY, g_config.enabled, TrayTip());
         // Last run's app list right away, a fresh one from the helper shortly after.
         SetApps(ReadAppList());
@@ -8197,6 +8215,45 @@ namespace
     abort();
 }
 
+namespace
+{
+// (Same names as the WPF version, so the two can never run side by side.)
+constexpr wchar_t InstanceName[] = L"Local\\MyStartMenu.Instance";
+constexpr wchar_t ShowName[] = L"Local\\MyStartMenu.Show";
+constexpr wchar_t ExitName[] = L"Local\\MyStartMenu.Exit";
+
+// The menu runs elevated, yet a copy started by hand (unelevated) must still find it and ask it to
+// show: by default an elevated process' objects are open to administrators alone and labelled high,
+// out of an unelevated one's reach. These are open to the signed-in user at medium integrity.
+SECURITY_ATTRIBUTES *Shared()
+{
+    static SECURITY_ATTRIBUTES attributes = []
+    {
+        SECURITY_ATTRIBUTES a{ sizeof a };
+        ConvertStringSecurityDescriptorToSecurityDescriptorW(L"D:(A;;GA;;;SY)(A;;GA;;;BA)(A;;GA;;;IU)S:(ML;;NW;;;ME)",
+                                                             SDDL_REVISION_1, &a.lpSecurityDescriptor, nullptr);
+        return a;
+    }();
+    return attributes.lpSecurityDescriptor ? &attributes : nullptr;
+}
+
+// Asks the running copy to show the menu; it may still be starting, so wait up to `patience` ms.
+void SignalShow(DWORD patience = 0)
+{
+    for (ULONGLONG until = GetTickCount64() + patience;;)
+    {
+        if (HANDLE running = OpenEventW(EVENT_MODIFY_STATE, FALSE, ShowName))
+        {
+            SetEvent(running);
+            CloseHandle(running);
+            return;
+        }
+        if (GetTickCount64() >= until) return;
+        Sleep(50);
+    }
+}
+}
+
 int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int)
 {
     std::set_terminate(LogTerminate);
@@ -8216,6 +8273,20 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int)
         return RunPickFolderHelper(argv[2]);
     if (argc == 2 && std::wstring_view(argv[1]) == L"--empty-recycle-bin")
         return RunEmptyRecycleBinHelper();
+    if (argc == 2 && std::wstring_view(argv[1]) == L"--register-autostart")
+        return RunRegisterAutostartHelper();
+    // Closes the running menu and waits for it to go: an elevated one cannot be stopped from an
+    // unelevated shell (build.cmd's caller), but it can be asked.
+    if (argc == 2 && std::wstring_view(argv[1]) == L"--exit")
+    {
+        HANDLE running = OpenMutexW(SYNCHRONIZE, FALSE, InstanceName);
+        HANDLE exit = OpenEventW(EVENT_MODIFY_STATE, FALSE, ExitName);
+        if (exit) SetEvent(exit);
+        if (running) WaitForSingleObject(running, 10000);
+        if (exit) CloseHandle(exit);
+        if (running) CloseHandle(running);
+        return 0;
+    }
 
     UseUserEnvironment();
 
@@ -8232,18 +8303,14 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int)
     LocalFree(argv);
 
     // One copy at a time; starting another just asks the running one to show the menu.
-    // (Same names as the WPF version, so the two can never run side by side.)
     HANDLE instanceLock = nullptr;
     if (renderFolder.empty())
     {
-        instanceLock = CreateMutexW(nullptr, TRUE, L"Local\\MyStartMenu.Instance");
-        if (GetLastError() == ERROR_ALREADY_EXISTS)
+        instanceLock = CreateMutexW(Shared(), TRUE, InstanceName);
+        // Access denied: an elevated copy made it before it was shared (an older build).
+        if (DWORD error = GetLastError(); error == ERROR_ALREADY_EXISTS || error == ERROR_ACCESS_DENIED)
         {
-            if (HANDLE running = OpenEventW(EVENT_MODIFY_STATE, FALSE, L"Local\\MyStartMenu.Show"))
-            {
-                SetEvent(running);
-                CloseHandle(running);
-            }
+            SignalShow();
             return 0;
         }
     }
@@ -8260,15 +8327,45 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int)
         return RenderToFiles(renderFolder);
 
     // On at logon from the first run (the user's wish); turned off from the tray, it stays off.
-    // A Run value from an older version moves to the logon task, once.
-    if (firstRun || AutostartIsOld())
-        SetAutostart(true);
+    // A Run value from an older version moves to the logon task, once; so does a task that starts
+    // the menu unelevated, from before it ran elevated (Windows asks once, at that start).
+    // Not with a test's settings file (MYSTARTMENU_CONFIG): that copy runs as it was started.
+    bool test = GetEnvironmentVariableW(L"MYSTARTMENU_CONFIG", nullptr, 0) > 0;
+    if (!test)
+    {
+        bool raise = g_config.runAsAdmin && (IsElevated() || CanElevate());
+        if (firstRun || AutostartIsOld() || (raise && AutostartEnabled() && !AutostartElevated()))
+            if (!SetAutostart(true, raise) && raise)
+            {
+                g_config.runAsAdmin = false;  // declined: not asked again at every start
+                SaveConfig();
+            }
+        // Started unelevated (by hand, or a build's restart): the elevated task takes over.
+        if (!IsElevated() && g_config.runAsAdmin && AutostartEnabled() && AutostartElevated())
+        {
+            ReleaseMutex(instanceLock);
+            CloseHandle(instanceLock);
+            if (RunAutostartTask())
+            {
+                if (!background) SignalShow(5000);
+                return 0;
+            }
+            instanceLock = CreateMutexW(Shared(), TRUE, InstanceName);
+        }
+    }
 
-    HANDLE showEvent = CreateEventW(nullptr, FALSE, FALSE, L"Local\\MyStartMenu.Show");
-    std::thread([showEvent]
+    HANDLE showEvent = CreateEventW(Shared(), FALSE, FALSE, ShowName);
+    HANDLE exitEvent = CreateEventW(Shared(), FALSE, FALSE, ExitName);
+    std::thread([showEvent, exitEvent]
                 {
-        while (WaitForSingleObject(showEvent, INFINITE) == WAIT_OBJECT_0)
-            if (g_hwnd) PostMessageW(g_hwnd, WM_SHOW_MENU, 0, 0); })
+        HANDLE events[] = { showEvent, exitEvent };
+        for (;;)
+        {
+            DWORD which = WaitForMultipleObjects(2, events, FALSE, INFINITE);
+            if (which == WAIT_OBJECT_0 && g_hwnd) PostMessageW(g_hwnd, WM_SHOW_MENU, 0, 0);
+            else if (which == WAIT_OBJECT_0 + 1 && g_hwnd) PostMessageW(g_hwnd, WM_EXIT_MENU, 0, 0);
+            else if (which != WAIT_OBJECT_0) break;
+        } })
         .detach();
 
     int result = RunMenu(instance, background);
