@@ -22,6 +22,7 @@
 #include <d2d1effects.h>
 #include <dwrite.h>
 #include <wincodec.h>
+#include <shobjidl.h>
 #include <sddl.h>
 #include <wrl/client.h>
 #include <DispatcherQueue.h>
@@ -139,6 +140,7 @@ namespace
         TimerDragScroll,
         TimerTakeForeground,
         TimerTip,
+        TimerTaskbar,
         TimerHideScrollbar
     }; // the last, one per scrollbar (+ bar)
 
@@ -3962,6 +3964,8 @@ namespace
     // One step towards the foreground; true when done: the menu has it (and holds nothing), or no
     // longer wants it. A shell flyout in front is closed with Esc, as Windows' own Start menu closes
     // it; another may be under it (search, then the clock opened over it), so the next step looks again.
+    void RaiseTaskbarLure();
+
     bool FrontStep()
     {
         if (!g_visible || g_closing)
@@ -3974,7 +3978,89 @@ namespace
         }
         if (GetForegroundWindow() != g_hwnd && !TakeForeground())
             return false;
+        RaiseTaskbarLure();
         return !g_frontHolding;
+    }
+
+    // ---- The taskbar over a full-screen window ----
+    //
+    // While a full-screen window (Steam's Big Picture, a game) is in front, Explorer takes the taskbar
+    // out of the topmost band and keeps it under that window; Windows' own Start brings it up, ours
+    // did not (a friend noticed; logged with Steam). Explorer decides by the first ordinary window it
+    // finds from the top of the z-order, skipping topmost and tool windows, so the menu, both, never
+    // counts. It cannot be raised from outside either: Explorer puts it straight back (SetWindowPos
+    // succeeds, the taskbar stays down). So while the menu is open over such a window, a lure sits
+    // just under the menu: an ordinary, unowned window, 1x1 and fully transparent, its taskbar button
+    // taken away. Explorer takes it for an app in front and raises the taskbar; hiding it lets
+    // Explorer lower the taskbar again by itself. Tried with a full-screen window of our own:
+    // activating the lure is not needed, the size does not matter, the button can go; an owned
+    // window does not count (no taskbar button), nor a topmost or a tool window.
+
+    HWND g_taskbarLure = nullptr;
+
+    bool TaskbarOnTop()
+    {
+        HWND taskbar = FindWindowW(L"Shell_TrayWnd", nullptr);
+        return !taskbar || (GetWindowLongW(taskbar, GWL_EXSTYLE) & WS_EX_TOPMOST);
+    }
+
+    // Shown after the menu went topmost: shown before, the menu's own SetWindowPos to topmost did
+    // nothing (logged).
+    void ShowTaskbarLure()
+    {
+        if (TaskbarOnTop())
+            return; // no full-screen window holding it down
+        if (!g_taskbarLure)
+        {
+            WNDCLASSEXW wc{sizeof wc};
+            wc.lpfnWndProc = DefWindowProcW;
+            wc.hInstance = GetModuleHandleW(nullptr);
+            wc.lpszClassName = L"MyStartMenuTaskbarLure";
+            RegisterClassExW(&wc);
+            // Layered at alpha 0: nothing drawn, clicks go through.
+            g_taskbarLure = CreateWindowExW(WS_EX_LAYERED, wc.lpszClassName, L"", WS_POPUP, 0, 0, 1, 1, nullptr,
+                                            nullptr, wc.hInstance, nullptr);
+            if (!g_taskbarLure)
+                return;
+            SetLayeredWindowAttributes(g_taskbarLure, 0, 0, LWA_ALPHA);
+        }
+        RECT menu;
+        GetWindowRect(g_hwnd, &menu); // under the menu, on its monitor
+        SetWindowPos(g_taskbarLure, HWND_TOP, (menu.left + menu.right) / 2, (menu.top + menu.bottom) / 2, 1, 1,
+                     SWP_NOACTIVATE | SWP_SHOWWINDOW);
+        Microsoft::WRL::ComPtr<ITaskbarList> list;
+        if (SUCCEEDED(CoCreateInstance(CLSID_TaskbarList, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&list))) &&
+            SUCCEEDED(list->HrInit()))
+            list->DeleteTab(g_taskbarLure);
+    }
+
+    void KeepAboveTaskbar();
+
+    // Raised again once the menu has the foreground: before that, as a background process, the menu
+    // could not put it above the full-screen window (logged: it stayed under it). Explorer raises the
+    // taskbar a little later (under 300 ms, logged), to the top of the topmost band, over the Start
+    // highlight: once it is up, the menu and the highlight go back above it.
+    void RaiseTaskbarLure()
+    {
+        if (!g_taskbarLure || !IsWindowVisible(g_taskbarLure))
+            return;
+        SetWindowPos(g_taskbarLure, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+        static int tries;
+        tries = 33; // every 30 ms for a second
+        SetTimer(g_hwnd, TimerTaskbar, 30, [](HWND hwnd, UINT, UINT_PTR id, DWORD)
+                 {
+            bool up = TaskbarOnTop();
+            if (up)
+                KeepAboveTaskbar();
+            if (up || --tries <= 0)
+                KillTimer(hwnd, id); });
+    }
+
+    void HideTaskbarLure()
+    {
+        KillTimer(g_hwnd, TimerTaskbar);
+        if (g_taskbarLure && IsWindowVisible(g_taskbarLure))
+            ShowWindow(g_taskbarLure, SW_HIDE);
     }
 
     void BringToFront()
@@ -4158,6 +4244,15 @@ namespace
         Animate(g_highlight, L"Opacity", 1, HoverTime, g_compositor.CreateLinearEasingFunction());
     }
 
+    void KeepAboveTaskbar()
+    {
+        if (!g_visible || g_closing)
+            return;
+        SetWindowPos(g_hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+        if (g_highlightShown)
+            SetWindowPos(g_highlightHwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+    }
+
     // A mouse press anywhere while the menu is open (Input's hook). The menu closes when it loses the
     // foreground (WM_ACTIVATE); opened without it, as over a taskbar button's jump list, it never
     // would, and stayed open whatever was clicked (the user saw it). Then a press outside the menu and
@@ -4224,6 +4319,7 @@ namespace
         // Always on top while open, as Windows' own menu is: a taskbar button's jump list, itself on
         // top, hid the menu opened over it (the user saw it). Raised on every open, to the top of that band.
         SetWindowPos(g_hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+        ShowTaskbarLure(); // a full-screen window in front: brings the taskbar up
         OpenPopup(g_main, {0, SlideDistance}, true);
         BringToFront();
         MenuOpen(true); // the Start button followed, presses reported (PressedOutside)
@@ -4250,6 +4346,7 @@ namespace
         CloseSettings();
         MenuOpen(false);
         ShowStartHighlight(false);
+        HideTaskbarLure();
         ClosePopup(g_main, {0, SlideDistance}, []
                    {
         g_closing = false;
